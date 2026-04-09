@@ -1,8 +1,9 @@
 """Dash app for NBA Polymarket game visualization."""
 
 from dash import Dash, Input, Output, callback, dcc, html, no_update
+import plotly.graph_objects as go
 
-from charts import build_price_chart
+from charts import build_charts
 from loaders import get_available_dates, get_nba_games, load_game
 
 DATA_DIR = "data"
@@ -48,9 +49,14 @@ app.layout = html.Div(
             ],
         ),
 
-        # Chart
+        # Charts
+        html.H3("Pre-Game", style={"marginTop": "10px", "marginBottom": "5px"}),
         dcc.Loading(
-            dcc.Graph(id="main-chart", style={"height": "800px"}),
+            dcc.Graph(id="pregame-chart", style={"height": "700px"}),
+        ),
+        html.H3("In-Game", style={"marginTop": "20px", "marginBottom": "5px"}),
+        dcc.Loading(
+            dcc.Graph(id="game-chart", style={"height": "700px"}),
         ),
     ],
 )
@@ -87,7 +93,8 @@ def populate_games(date):
 
 
 @callback(
-    Output("main-chart", "figure"),
+    Output("pregame-chart", "figure"),
+    Output("game-chart", "figure"),
     Output("game-card", "children"),
     Output("pregame-card", "children"),
     Input("game-picker", "value"),
@@ -95,17 +102,27 @@ def populate_games(date):
 )
 def update_game(match_id, date):
     if not match_id or not date:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     data = load_game(DATA_DIR, date, match_id)
     manifest = data["manifest"]
     trades_df = data["trades_df"]
     trades_meta = data["trades_meta"]
 
-    fig = build_price_chart(
+    pregame_fig, game_fig = build_charts(
         trades_df, manifest, data["events"],
         data["tricode_map"], data["gamma_start"], data["gamma_closed"],
     )
+
+    # If no tip-off, pregame_fig has all trades, game_fig is None
+    if game_fig is None:
+        game_fig = go.Figure()
+        game_fig.update_layout(
+            template="plotly_dark", height=300,
+            annotations=[dict(text="No tip-off detected", showarrow=False,
+                              xref="paper", yref="paper", x=0.5, y=0.5,
+                              font=dict(size=18, color="#888"))],
+        )
 
     # Game metadata card
     away = manifest["outcomes"][0]
@@ -127,7 +144,7 @@ def update_game(match_id, date):
     # Pre-game summary card
     pregame_card = _build_pregame_card(trades_df, trades_meta, data, manifest)
 
-    return fig, game_card, pregame_card
+    return pregame_fig, game_fig, game_card, pregame_card
 
 
 def _build_pregame_card(trades_df, trades_meta, data, manifest):

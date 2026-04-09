@@ -1,44 +1,95 @@
 """Plotly chart builders for NBA game visualization."""
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def build_price_chart(
+def build_charts(
     trades_df: pd.DataFrame,
     manifest: dict,
     events: list[dict] | None,
     tricode_map: dict,
     gamma_start=None,
     gamma_closed=None,
-) -> go.Figure:
-    """Build combined 3-row subplot: price, volume, cumulative volume."""
+) -> tuple[go.Figure, go.Figure | None]:
+    """Build pre-game and in-game chart figures.
 
+    Returns (pregame_fig, game_fig). game_fig is None if no tip-off found.
+    """
     away_team = manifest["outcomes"][0]
     home_team = manifest["outcomes"][1]
     away_token = manifest["token_ids"][0]
     home_token = manifest["token_ids"][1]
+
+    tip_off = _get_tipoff(events)
+
+    if tip_off is None:
+        # No tip-off — single chart with all trades
+        fig = _build_subplot_figure(
+            trades_df, away_token, home_token, away_team, home_team,
+            title="All Trades (no tip-off detected)",
+            vmarkers=_collect_vmarkers(gamma_start, None, gamma_closed),
+            events=None, tricode_map=tricode_map,
+        )
+        return fig, None
+
+    # Split trades at tip-off
+    pre_trades = trades_df[trades_df["datetime"] < tip_off]
+    game_trades = trades_df[trades_df["datetime"] >= tip_off]
+
+    # Pre-game figure
+    pre_vmarkers = _collect_vmarkers(gamma_start, tip_off, None)
+    pregame_fig = _build_subplot_figure(
+        pre_trades, away_token, home_token, away_team, home_team,
+        title="Pre-Game",
+        vmarkers=pre_vmarkers,
+        events=None, tricode_map=tricode_map,
+    )
+
+    # In-game figure
+    game_vmarkers = _collect_vmarkers(None, tip_off, gamma_closed)
+    game_fig = _build_subplot_figure(
+        game_trades, away_token, home_token, away_team, home_team,
+        title="In-Game",
+        vmarkers=game_vmarkers,
+        events=events, tricode_map=tricode_map,
+    )
+
+    return pregame_fig, game_fig
+
+
+def _build_subplot_figure(
+    trades_df, away_token, home_token, away_team, home_team,
+    title, vmarkers, events, tricode_map,
+) -> go.Figure:
+    """Build a 3-row subplot figure for a slice of trades."""
+    if trades_df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            template="plotly_dark", height=300,
+            annotations=[dict(text=f"{title}: no trades", showarrow=False,
+                              xref="paper", yref="paper", x=0.5, y=0.5,
+                              font=dict(size=18, color="#888"))],
+        )
+        return fig
 
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.04,
         row_heights=[0.55, 0.25, 0.20],
-        subplot_titles=("Price", "Volume", "Cumulative Volume"),
+        subplot_titles=(f"{title} — Price", "Volume", "Cumulative Volume"),
     )
 
-    # --- Row 1: Price lines ---
+    # Row 1: Price lines
     away_trades = trades_df[trades_df["asset"] == away_token].sort_values("datetime")
     home_trades = trades_df[trades_df["asset"] == home_token].sort_values("datetime")
 
     fig.add_trace(
         go.Scattergl(
-            x=away_trades["datetime"],
-            y=away_trades["price"],
-            mode="lines",
-            name=away_team,
+            x=away_trades["datetime"], y=away_trades["price"],
+            mode="lines", name=away_team,
             line=dict(color="#1f77b4", width=1.5),
             hovertemplate="%{x}<br>Price: %{y:.3f}<extra>" + away_team + "</extra>",
         ),
@@ -46,64 +97,49 @@ def build_price_chart(
     )
     fig.add_trace(
         go.Scattergl(
-            x=home_trades["datetime"],
-            y=home_trades["price"],
-            mode="lines",
-            name=home_team,
+            x=home_trades["datetime"], y=home_trades["price"],
+            mode="lines", name=home_team,
             line=dict(color="#ff7f0e", width=1.5),
             hovertemplate="%{x}<br>Price: %{y:.3f}<extra>" + home_team + "</extra>",
         ),
         row=1, col=1,
     )
 
-    # Vertical markers
-    tip_off = _get_tipoff(events)
+    # Vertical markers on price row
+    _add_vertical_markers(fig, vmarkers)
 
-    _add_vertical_markers(fig, gamma_start, gamma_closed, tip_off)
-
-    # Event markers (scoring events on price lines)
+    # Event markers
     if events:
         _add_event_markers(
             fig, events, tricode_map, away_trades, home_trades,
             away_team, home_team,
         )
 
-    # --- Row 2: Volume bars ---
+    # Row 2: Volume bars
     _add_volume_bars(fig, trades_df)
 
-    # --- Row 3: Cumulative volume ---
+    # Row 3: Cumulative volume
     sorted_trades = trades_df.sort_values("datetime")
     cum_size = sorted_trades["size"].cumsum()
-
     fig.add_trace(
         go.Scattergl(
-            x=sorted_trades["datetime"],
-            y=cum_size,
-            mode="lines",
-            name="Cumulative Vol",
+            x=sorted_trades["datetime"], y=cum_size,
+            mode="lines", name="Cumulative Vol",
             line=dict(color="#9467bd", width=1.5),
             hovertemplate="%{x}<br>Cumulative: $%{y:,.0f}<extra></extra>",
         ),
         row=3, col=1,
     )
 
-    if tip_off:
-        fig.add_shape(
-            type="line", x0=tip_off, x1=tip_off, y0=0, y1=1,
-            yref="y3 domain", xref="x3",
-            line=dict(color="green", width=1, dash="solid"),
-            row=3, col=1,
-        )
-
-    # Layout
     fig.update_layout(
-        height=800,
+        height=700,
         template="plotly_dark",
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=60, r=30, t=40, b=40),
         xaxis3=dict(rangeslider=dict(visible=True, thickness=0.05)),
         hovermode="x unified",
+        barmode="stack",
     )
 
     fig.update_yaxes(title_text="Price", row=1, col=1)
@@ -112,6 +148,8 @@ def build_price_chart(
 
     return fig
 
+
+# --- Helpers ---
 
 def _get_tipoff(events: list[dict] | None):
     """Return tip-off datetime (first event's time_actual)."""
@@ -124,8 +162,8 @@ def _get_tipoff(events: list[dict] | None):
     return None
 
 
-def _add_vertical_markers(fig, gamma_start, gamma_closed, tip_off):
-    """Add vertical reference lines to Row 1."""
+def _collect_vmarkers(gamma_start, tip_off, gamma_closed) -> list[tuple]:
+    """Build list of (timestamp, color, dash, label) vertical markers."""
     markers = []
     if gamma_start:
         markers.append((gamma_start, "gray", "dash", "Scheduled Start"))
@@ -133,7 +171,11 @@ def _add_vertical_markers(fig, gamma_start, gamma_closed, tip_off):
         markers.append((tip_off, "green", "solid", "Tip-Off"))
     if gamma_closed:
         markers.append((gamma_closed, "red", "dash", "Market Close"))
+    return markers
 
+
+def _add_vertical_markers(fig, markers: list[tuple]):
+    """Add vertical reference lines to Row 1."""
     for ts, color, dash, label in markers:
         fig.add_shape(
             type="line", x0=ts, x1=ts, y0=0, y1=1,
@@ -161,9 +203,7 @@ def _add_event_markers(
         (away_team, away_trades, "#1f77b4"),
         (home_team, home_trades, "#ff7f0e"),
     ]:
-        # Find tricodes that map to this team
         team_tricodes = {tc for tc, name in tricode_map.items() if name == team_name}
-
         team_events = [
             ev for ev in events
             if ev.get("team_tricode") in team_tricodes
@@ -213,7 +253,6 @@ def _nearest_price(team_trades: pd.DataFrame, t, max_gap_s: int = 60) -> float |
     if gap <= max_gap_s:
         return team_trades.loc[idx, "price"]
 
-    # Fallback: last known price before t
     before = team_trades[team_trades["datetime"] <= t]
     if not before.empty:
         return before.iloc[-1]["price"]
@@ -225,7 +264,6 @@ def _add_volume_bars(fig, trades_df: pd.DataFrame):
     """Add stacked BUY/SELL volume bars to Row 2."""
     sorted_df = trades_df.sort_values("datetime")
 
-    # Determine bucket size
     span = (sorted_df["datetime"].max() - sorted_df["datetime"].min()).total_seconds()
     freq = "1min" if span < 6 * 3600 else "5min"
 
@@ -244,5 +282,3 @@ def _add_volume_bars(fig, trades_df: pd.DataFrame):
             ),
             row=2, col=1,
         )
-
-    fig.update_layout(barmode="stack")
