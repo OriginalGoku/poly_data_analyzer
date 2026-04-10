@@ -1,12 +1,37 @@
 """Dash app for NBA Polymarket game visualization."""
 
+import json
+from pathlib import Path
+
 from dash import Dash, Input, Output, callback, dcc, html, no_update
 import plotly.graph_objects as go
 
 from charts import build_charts
 from loaders import get_available_dates, get_nba_games, load_game
+from whales import analyze_whales
 
 DATA_DIR = "data"
+SETTINGS_PATH = Path(__file__).parent / "chart_settings.json"
+
+
+def _load_settings() -> dict:
+    with open(SETTINGS_PATH) as f:
+        return json.load(f)
+
+
+SETTINGS = _load_settings()
+
+
+def _info_row(label, value):
+    return html.Div(
+        style={"display": "flex", "justifyContent": "space-between",
+               "padding": "3px 0", "borderBottom": "1px solid #333"},
+        children=[
+            html.Span(label, style={"color": "#888"}),
+            html.Span(str(value), style={"fontWeight": "bold"}),
+        ],
+    )
+
 
 app = Dash(__name__)
 
@@ -46,8 +71,35 @@ app.layout = html.Div(
                          style={"flex": "1", "minWidth": "300px",
                                 "backgroundColor": "#1a1a2e", "padding": "15px",
                                 "borderRadius": "8px"}),
+                html.Div(
+                    style={"flex": "1", "minWidth": "250px", "maxWidth": "300px",
+                           "backgroundColor": "#1a1a2e", "padding": "15px",
+                           "borderRadius": "8px"},
+                    children=[
+                        html.H4("Chart Settings", style={"marginTop": 0}),
+                        _info_row("Vol Spike Std Dev",
+                                  f"{SETTINGS['vol_spike_std']}σ"),
+                        _info_row("Vol Spike Lookback",
+                                  f"{SETTINGS['vol_spike_lookback']} bars"),
+                        _info_row("Pre-Game Min Cum Vol",
+                                  f"${SETTINGS['pregame_min_cum_vol']:,}"),
+                        _info_row("Post-Game Buffer",
+                                  f"{SETTINGS['post_game_buffer_min']} min"),
+                        html.Hr(style={"borderColor": "#333", "margin": "8px 0"}),
+                        _info_row("Whale Min Vol %",
+                                  f"{SETTINGS.get('whale_min_volume_pct', 2.0)}%"),
+                        _info_row("Whale Max Count",
+                                  SETTINGS.get("whale_max_count", 10)),
+                        _info_row("Whale Maker Thresh",
+                                  f"{SETTINGS.get('whale_maker_threshold_pct', 60)}%"),
+                    ],
+                ),
             ],
         ),
+
+        # Whale card
+        html.Div(id="whale-card",
+                 style={"marginBottom": "20px"}),
 
         # Charts
         html.H3("Pre-Game", style={"marginTop": "10px", "marginBottom": "5px"}),
@@ -97,21 +149,26 @@ def populate_games(date):
     Output("game-chart", "figure"),
     Output("game-card", "children"),
     Output("pregame-card", "children"),
+    Output("whale-card", "children"),
     Input("game-picker", "value"),
     Input("date-picker", "value"),
 )
 def update_game(match_id, date):
     if not match_id or not date:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     data = load_game(DATA_DIR, date, match_id)
     manifest = data["manifest"]
     trades_df = data["trades_df"]
     trades_meta = data["trades_meta"]
 
+    whale_data = analyze_whales(trades_df, SETTINGS)
+    whale_addresses = {w["address"] for w in whale_data["whales"]}
+
     pregame_fig, game_fig = build_charts(
         trades_df, manifest, data["events"],
         data["tricode_map"], data["gamma_start"], data["gamma_closed"],
+        settings=SETTINGS, whale_addresses=whale_addresses,
     )
 
     # If no tip-off, pregame_fig has all trades, game_fig is None
@@ -144,7 +201,10 @@ def update_game(match_id, date):
     # Pre-game summary card
     pregame_card = _build_pregame_card(trades_df, trades_meta, data, manifest)
 
-    return pregame_fig, game_fig, game_card, pregame_card
+    # Whale card
+    whale_card = _build_whale_card(whale_data)
+
+    return pregame_fig, game_fig, game_card, pregame_card, whale_card
 
 
 def _build_pregame_card(trades_df, trades_meta, data, manifest):
@@ -191,13 +251,79 @@ def _build_pregame_card(trades_df, trades_meta, data, manifest):
     ]
 
 
-def _info_row(label, value):
+def _build_whale_card(whale_data: dict):
+    """Build whale leaderboard card with two sub-sections."""
+    summary = whale_data["summary"]
+    whales = whale_data["whales"]
+
+    if not whales:
+        return html.Div(
+            style={"backgroundColor": "#1a1a2e", "padding": "15px",
+                   "borderRadius": "8px"},
+            children=[html.H4("Whale Tracker", style={"marginTop": 0}),
+                      html.P("No whales detected", style={"color": "#888"})],
+        )
+
+    badge_colors = {
+        "Market Maker": "#4CAF50",
+        "Directional": "#FF5722",
+        "Hybrid": "#FFC107",
+    }
+
+    def _whale_row(w):
+        badge_color = badge_colors.get(w["classification"], "#888")
+        return html.Div(
+            style={"display": "flex", "justifyContent": "space-between",
+                   "alignItems": "center", "padding": "4px 0",
+                   "borderBottom": "1px solid #333", "fontSize": "13px"},
+            children=[
+                html.Span(w["display_addr"], style={"fontFamily": "monospace",
+                                                     "minWidth": "120px"}),
+                html.Span(f"${w['total_volume']:,.0f}",
+                          style={"minWidth": "90px", "textAlign": "right"}),
+                html.Span(f"{w['pct_of_total']:.1f}%",
+                          style={"minWidth": "50px", "textAlign": "right"}),
+                html.Span(w["classification"],
+                          style={"backgroundColor": badge_color, "color": "#111",
+                                 "padding": "2px 6px", "borderRadius": "4px",
+                                 "fontSize": "11px", "fontWeight": "bold",
+                                 "minWidth": "90px", "textAlign": "center"}),
+                html.Span(w["primary_side"],
+                          style={"minWidth": "50px", "textAlign": "right",
+                                 "color": "#888"}),
+            ],
+        )
+
+    # Top Aggressors (by taker_volume)
+    by_taker = sorted([w for w in whales if w["taker_volume"] > 0],
+                      key=lambda w: w["taker_volume"], reverse=True)[:5]
+    # Top Liquidity (by maker_volume)
+    by_maker = sorted([w for w in whales if w["maker_volume"] > 0],
+                      key=lambda w: w["maker_volume"], reverse=True)[:5]
+
     return html.Div(
-        style={"display": "flex", "justifyContent": "space-between",
-               "padding": "3px 0", "borderBottom": "1px solid #333"},
+        style={"backgroundColor": "#1a1a2e", "padding": "15px",
+               "borderRadius": "8px"},
         children=[
-            html.Span(label, style={"color": "#888"}),
-            html.Span(str(value), style={"fontWeight": "bold"}),
+            html.H4("Whale Tracker", style={"marginTop": 0}),
+            html.P(
+                f"{summary['whale_count']} whales = "
+                f"${summary['whale_volume']:,.0f} "
+                f"({summary['whale_pct']:.1f}% of volume)",
+                style={"color": "#FFD600", "fontWeight": "bold",
+                       "marginBottom": "12px"},
+            ),
+            html.Div(style={"display": "flex", "gap": "20px", "flexWrap": "wrap"},
+                     children=[
+                html.Div(style={"flex": "1", "minWidth": "300px"}, children=[
+                    html.H5("Top Aggressors (Takers)",
+                             style={"color": "#FF5722", "marginTop": 0}),
+                ] + [_whale_row(w) for w in by_taker]),
+                html.Div(style={"flex": "1", "minWidth": "300px"}, children=[
+                    html.H5("Top Liquidity (Makers)",
+                             style={"color": "#4CAF50", "marginTop": 0}),
+                ] + [_whale_row(w) for w in by_maker]),
+            ]),
         ],
     )
 
