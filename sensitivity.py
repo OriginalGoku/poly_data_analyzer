@@ -125,7 +125,8 @@ def load_or_compute_sensitivity(
         if not payload:
             return None
         df = pd.DataFrame(payload)
-        df["event_time"] = pd.to_datetime(df["event_time"], utc=True)
+        # Existing cache files may mix ISO timestamps with and without fractional seconds.
+        df["event_time"] = pd.to_datetime(df["event_time"], utc=True, format="mixed")
         return df
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)

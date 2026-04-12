@@ -223,6 +223,60 @@ class TestSensitivityCache:
         assert (cache_dir / "2025-01-01").is_dir()
         assert (cache_dir / "2025-01-01" / "match-2_sensitivity.json").exists()
 
+    def test_cache_read_accepts_mixed_iso_timestamp_formats(self, tmp_path):
+        cache_path = tmp_path / "cache" / "2025-01-01" / "match-3_sensitivity.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            """[
+  {
+    "event_time": "2026-04-09T23:50:09+00:00",
+    "team": "Away",
+    "points": 2,
+    "period": 1,
+    "seconds_since_tipoff": 60,
+    "pre_lead": 0,
+    "post_lead": 2,
+    "lead_bin": "Close",
+    "time_bin": 0,
+    "price_before": 0.4,
+    "price_after": 0.45,
+    "delta_price": 0.05,
+    "trades_before_count": 5,
+    "trades_after_count": 5
+  },
+  {
+    "event_time": "2026-04-09T23:51:09.123456+00:00",
+    "team": "Home",
+    "points": 3,
+    "period": 1,
+    "seconds_since_tipoff": 120,
+    "pre_lead": 2,
+    "post_lead": 1,
+    "lead_bin": "Close",
+    "time_bin": 0,
+    "price_before": 0.45,
+    "price_after": 0.4,
+    "delta_price": -0.05,
+    "trades_before_count": 5,
+    "trades_after_count": 5
+  }
+]"""
+        )
+
+        df = load_or_compute_sensitivity(
+            tmp_path / "cache",
+            "2025-01-01",
+            "match-3",
+            pd.DataFrame(),
+            [],
+            _manifest(),
+            _settings(),
+        )
+
+        assert df is not None
+        assert len(df) == 2
+        assert str(df["event_time"].dtype).startswith("datetime64[ns, UTC]")
+
 
 class TestSensitivityCharts:
     def test_timeline_empty_input_returns_placeholder(self):
