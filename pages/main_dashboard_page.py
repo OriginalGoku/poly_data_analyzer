@@ -12,11 +12,13 @@ from dash import Input, Output, dcc, html, no_update
 from analytics import ACTIVE_INTERPRETABLE_BAND_LABELS, build_analysis_summary, get_analytics_view
 from charts import (
     build_charts,
+    build_discrepancy_intervals_chart,
     build_score_chart,
     build_score_diff_chart,
     build_sensitivity_surface,
     build_sensitivity_timeline,
 )
+from discrepancy import load_or_compute_discrepancies
 from loaders import get_available_sports_from_manifests, get_dates_for_sport, get_games_for_date_and_sport
 from sensitivity import load_or_compute_sensitivity
 from view_helpers import CARD_STYLE, info_row, format_prob, format_quantile_cutoffs
@@ -163,6 +165,8 @@ class MainDashboardPage:
                 dcc.Loading(dcc.Graph(id="sensitivity-timeline", style={"height": "360px"})),
                 html.H3("Sensitivity by Game Phase & Score Gap", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="sensitivity-surface", style={"height": "520px"})),
+                html.H3("Market-Score Discrepancies", style={"marginTop": "20px", "marginBottom": "5px"}),
+                dcc.Loading(dcc.Graph(id="discrepancy-chart", style={"height": "360px"})),
                 html.H3("In-Game", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="game-chart", style={"height": "700px"})),
             ]
@@ -236,6 +240,7 @@ class MainDashboardPage:
             Output("score-diff-chart", "figure"),
             Output("sensitivity-timeline", "figure"),
             Output("sensitivity-surface", "figure"),
+            Output("discrepancy-chart", "figure"),
             Output("game-card", "children"),
             Output("pregame-card", "children"),
             Output("analysis-card", "children"),
@@ -250,6 +255,7 @@ class MainDashboardPage:
         def update_game(selected_game, start_date, end_date, sport, price_quality_filter, bucket):
             if not selected_game or not start_date or not end_date or not sport:
                 return (
+                    no_update,
                     no_update,
                     no_update,
                     no_update,
@@ -279,6 +285,7 @@ class MainDashboardPage:
             game_row = analytics[(analytics["match_id"] == match_id) & (analytics["date"] == game_date)]
             if game_row.empty:
                 return (
+                    no_update,
                     no_update,
                     no_update,
                     no_update,
@@ -345,6 +352,19 @@ class MainDashboardPage:
                 manifest,
                 self.settings,
             )
+            discrepancy_df = load_or_compute_discrepancies(
+                cache_dir,
+                game_date,
+                match_id,
+                trades_df,
+                data["events"],
+                manifest,
+                self.settings,
+            )
+            discrepancy_fig = build_discrepancy_intervals_chart(
+                discrepancy_df,
+                manifest,
+            )
 
             if game_fig is None:
                 game_fig = go.Figure()
@@ -389,6 +409,7 @@ class MainDashboardPage:
                 score_diff_fig,
                 sensitivity_timeline_fig,
                 sensitivity_surface_fig,
+                discrepancy_fig,
                 game_card,
                 pregame_card,
                 analysis_card,

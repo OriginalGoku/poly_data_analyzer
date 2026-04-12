@@ -471,6 +471,74 @@ def build_sensitivity_surface(
     return fig
 
 
+def build_discrepancy_intervals_chart(
+    discrepancy_df: pd.DataFrame | None,
+    manifest: dict,
+    title: str = "Market-Score Discrepancies",
+) -> go.Figure:
+    """Build a horizontal interval chart for market-score discrepancy spans."""
+    if discrepancy_df is None or discrepancy_df.empty:
+        return _empty_score_figure(f"{title}: no discrepancy intervals", height=360)
+
+    plotted = discrepancy_df.sort_values("start_time").copy()
+    plotted["label"] = [f"D{i}" for i in range(1, len(plotted) + 1)]
+    plotted["duration_min"] = plotted["duration_seconds"] / 60.0
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=plotted["duration_min"],
+            y=plotted["label"],
+            orientation="h",
+            base=plotted["start_time"],
+            marker=dict(
+                color=plotted["avg_wrong_side_edge"],
+                colorscale="YlOrRd",
+                colorbar=dict(title="Avg Wrong-Side Edge"),
+                line=dict(color="#222", width=1),
+            ),
+            customdata=plotted[
+                [
+                    "start_time",
+                    "end_time",
+                    "trade_count",
+                    "start_score",
+                    "end_score",
+                    "score_leader",
+                    "market_favorite",
+                    "avg_wrong_side_edge",
+                    "max_wrong_side_edge",
+                    "duration_min",
+                ]
+            ].values,
+            hovertemplate=(
+                "%{y}<br>"
+                "Start: %{customdata[0]}<br>"
+                "End: %{customdata[1]}<br>"
+                "Duration: %{customdata[9]:.2f} min<br>"
+                "Trades: %{customdata[2]}<br>"
+                "Score: %{customdata[3]} → %{customdata[4]}<br>"
+                "Score Leader: %{customdata[5]}<br>"
+                "Market Favorite: %{customdata[6]}<br>"
+                "Avg Wrong-Side Edge: %{customdata[7]:.4f}<br>"
+                "Max Wrong-Side Edge: %{customdata[8]:.4f}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        title=title,
+        height=360,
+        margin=dict(l=60, r=30, t=50, b=40),
+        hovermode="closest",
+    )
+    fig.update_xaxes(title_text="Game Time")
+    fig.update_yaxes(title_text="Interval")
+    return fig
+
+
 def _empty_score_figure(message: str, height: int = 340) -> go.Figure:
     """Return a placeholder figure when score data is unavailable."""
     fig = go.Figure()

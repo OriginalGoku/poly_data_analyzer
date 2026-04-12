@@ -25,6 +25,9 @@ class ChartSettings:
     sensitivity_price_window_trades: int = 5
     sensitivity_lead_bin_close: int = 5
     sensitivity_lead_bin_moderate: int = 12
+    discrepancy_dead_zone_low: float = 0.49
+    discrepancy_dead_zone_high: float = 0.51
+    discrepancy_min_trades: int = 5
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChartSettings":
@@ -46,6 +49,9 @@ class ChartSettings:
             "sensitivity_price_window_trades": self.sensitivity_price_window_trades,
             "sensitivity_lead_bin_close": self.sensitivity_lead_bin_close,
             "sensitivity_lead_bin_moderate": self.sensitivity_lead_bin_moderate,
+            "discrepancy_dead_zone_low": self.discrepancy_dead_zone_low,
+            "discrepancy_dead_zone_high": self.discrepancy_dead_zone_high,
+            "discrepancy_min_trades": self.discrepancy_min_trades,
         }
 
 
