@@ -138,6 +138,10 @@ class TestDiscrepancyIntervals:
         assert abs(df.iloc[0]["time_to_flip_seconds"] - 50.0) < 1e-9
         assert abs(df.iloc[0]["max_improvement"] - 0.07) < 1e-9
         assert df.iloc[0]["resolution_type"] == "market_flip"
+        assert df.iloc[0]["forward_max_price"] == 0.52
+        assert abs(df.iloc[0]["forward_max_time_seconds"] - 50.0) < 1e-9
+        assert abs(df.iloc[0]["forward_return"] - 0.07) < 1e-9
+        assert abs(df.iloc[0]["forward_return_pct"] - (0.07 / 0.45)) < 1e-9
 
     def test_interval_ends_when_score_realigns(self):
         base = _base_time()
@@ -324,6 +328,10 @@ class TestDiscrepancyChart:
                     "avg_improvement": 0.03,
                     "end_improvement": 0.07,
                     "max_improvement": 0.09,
+                    "forward_max_price": 0.54,
+                    "forward_max_time_seconds": 60.0,
+                    "forward_return": 0.09,
+                    "forward_return_pct": 0.2,
                     "max_drawdown": 0.01,
                     "flip_flag": True,
                     "time_to_flip_seconds": 48.0,

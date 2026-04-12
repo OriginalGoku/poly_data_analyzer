@@ -11,12 +11,15 @@ python app.py                     # run Dash app on localhost:8050
 
 - `app.py` -- Dash app entry point (layout + callbacks + whale card builder)
 - `analytics.py` -- Cached game-level checkpoint analytics, sport-specific quantile bands, and per-game regime summaries
-- `charts.py` -- Plotly figure builders (pregame 3-row figure; in-game 4-row figure with whale markers and aggressor cumulative flow; sensitivity charts)
+- `charts.py` -- Plotly figure builders (pregame 3-row figure; in-game 4-row figure with whale markers and aggressor cumulative flow; sensitivity, discrepancy, regime transition, and dip recovery charts)
+- `discrepancy.py` -- Cached market-score discrepancy intervals plus forward-return metrics
+- `regime_transitions.py` -- Cached favorite-side band transition detection for the single-game dashboard
+- `dip_recovery.py` -- Cached absolute dip interval detection and recovery summaries
 - `sensitivity.py` -- Per-event scoring sensitivity computation and cache loader
 - `loaders.py` -- Data loading and parsing
 - `whales.py` -- Whale wallet identification, classification, filtering, and maker/taker trade-size stats
 - `chart_settings.json` -- Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)
-- `cache/` -- Local computed artifacts such as per-game sensitivity JSON cache
+- `cache/` -- Local computed artifacts such as per-game sensitivity, discrepancy, regime transition, and dip recovery JSON caches
 - `DATA_SPEC.md` -- Upstream data format reference (from poly-data-downloader)
 - `data/` -- Trade data directories (YYYY-MM-DD format, not checked in)
 

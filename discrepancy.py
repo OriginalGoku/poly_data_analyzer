@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-DISCREPANCY_CACHE_SCHEMA_VERSION = 4
+DISCREPANCY_CACHE_SCHEMA_VERSION = 5
 
 
 def compute_market_score_discrepancies(
@@ -37,6 +37,9 @@ def compute_market_score_discrepancies(
     high = float(getattr(settings, "discrepancy_dead_zone_high", 0.51))
     min_trades = int(getattr(settings, "discrepancy_min_trades", 5))
     max_trade_gap_seconds = int(getattr(settings, "discrepancy_max_trade_gap_seconds", 120))
+    forward_horizon_minutes = int(
+        getattr(settings, "discrepancy_forward_return_horizon_minutes", 12)
+    )
 
     away_trades = trades_df[trades_df["asset"] == away_token].sort_values("datetime").copy()
     if away_trades.empty:
@@ -144,9 +147,25 @@ def compute_market_score_discrepancies(
         }
         window_df, score_changed = _resolution_window(aligned, int(interval_df.index[0]))
         if start_row["interval_type"] == "lead":
-            summary.update(_summarize_lead_interval(start_row, window_df, score_changed))
+            summary.update(
+                _summarize_lead_interval(
+                    start_row,
+                    window_df,
+                    aligned,
+                    score_changed,
+                    forward_horizon_minutes,
+                )
+            )
         else:
-            summary.update(_summarize_tie_interval(start_row, window_df, score_changed))
+            summary.update(
+                _summarize_tie_interval(
+                    start_row,
+                    window_df,
+                    aligned,
+                    score_changed,
+                    forward_horizon_minutes,
+                )
+            )
         summary["schema_version"] = DISCREPANCY_CACHE_SCHEMA_VERSION
         rows.append(summary)
 
@@ -247,7 +266,9 @@ def _resolution_window(aligned: pd.DataFrame, start_pos: int) -> tuple[pd.DataFr
 def _summarize_lead_interval(
     start_row: pd.Series,
     window_df: pd.DataFrame,
+    aligned: pd.DataFrame,
     score_changed: bool,
+    forward_horizon_minutes: int,
 ) -> dict:
     """Summarize opportunity and resolution metrics for a lead discrepancy."""
     is_away_undervalued = start_row["score_state"] == "away_leading"
@@ -278,6 +299,14 @@ def _summarize_lead_interval(
     else:
         resolution_type = "expired_without_flip"
 
+    forward_return = _summarize_forward_prices(
+        aligned,
+        start_row["datetime"],
+        price_series_name="away_price" if is_away_undervalued else "home_price",
+        baseline=price_start,
+        horizon_minutes=forward_horizon_minutes,
+    )
+
     return {
         "undervalued_side": undervalued_side,
         "price_start": price_start,
@@ -293,13 +322,16 @@ def _summarize_lead_interval(
         "correction_ratio_end": float((price_end - price_start) / initial_discrepancy),
         "correction_ratio_max": float((price_max - price_start) / initial_discrepancy),
         "resolution_type": resolution_type,
+        **forward_return,
     }
 
 
 def _summarize_tie_interval(
     start_row: pd.Series,
     window_df: pd.DataFrame,
+    aligned: pd.DataFrame,
     score_changed: bool,
+    forward_horizon_minutes: int,
 ) -> dict:
     """Summarize reversion metrics for a tie discrepancy."""
     distance_series = (window_df["away_price"] - 0.5).abs()
@@ -321,6 +353,14 @@ def _summarize_tie_interval(
     else:
         resolution_type = "expired_without_reversion"
 
+    forward_prices = _summarize_forward_prices(
+        aligned,
+        start_row["datetime"],
+        price_series_name="away_price",
+        baseline=float(start_row["away_price"]),
+        horizon_minutes=forward_horizon_minutes,
+    )
+
     return {
         "price_start": float(start_row["away_price"]),
         "price_end": float(window_df.iloc[-1]["away_price"]),
@@ -335,6 +375,42 @@ def _summarize_tie_interval(
         "reversion_ratio_end": float((distance_start - distance_end) / distance_start),
         "reversion_ratio_max": float((distance_start - distance_min) / distance_start),
         "resolution_type": resolution_type,
+        **forward_prices,
+    }
+
+
+def _summarize_forward_prices(
+    aligned: pd.DataFrame,
+    start_time: pd.Timestamp,
+    price_series_name: str,
+    baseline: float,
+    horizon_minutes: int,
+) -> dict:
+    horizon_end = start_time + timedelta(minutes=horizon_minutes)
+    forward_window = aligned[
+        (aligned["datetime"] >= start_time) & (aligned["datetime"] <= horizon_end)
+    ].copy()
+    if forward_window.empty:
+        return {
+            "forward_max_price": baseline,
+            "forward_max_time_seconds": 0.0,
+            "forward_return": 0.0,
+            "forward_return_pct": 0.0,
+        }
+
+    series = forward_window[price_series_name].astype(float)
+    max_index = int(series.idxmax())
+    max_row = forward_window.loc[max_index]
+    forward_max_price = float(max_row[price_series_name])
+    forward_return = float(forward_max_price - baseline)
+    forward_return_pct = 0.0 if baseline == 0 else float(forward_return / baseline)
+    return {
+        "forward_max_price": forward_max_price,
+        "forward_max_time_seconds": float(
+            (max_row["datetime"] - start_time).total_seconds()
+        ),
+        "forward_return": forward_return,
+        "forward_return_pct": forward_return_pct,
     }
 
 
@@ -366,6 +442,10 @@ def _cache_has_required_columns(df: pd.DataFrame) -> bool:
         "max_discrepancy",
         "price_start",
         "price_end",
+        "forward_max_price",
+        "forward_max_time_seconds",
+        "forward_return",
+        "forward_return_pct",
         "resolution_type",
         "schema_version",
     }

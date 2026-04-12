@@ -217,3 +217,5 @@ def test_render_page_includes_sensitivity_graphs_on_root_dashboard():
     assert "sensitivity-timeline" in ids
     assert "sensitivity-surface" in ids
     assert "discrepancy-chart" in ids
+    assert "regime-transitions-chart" in ids
+    assert "dip-recovery-tables" in ids

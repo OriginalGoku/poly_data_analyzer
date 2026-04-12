@@ -530,6 +530,10 @@ def build_discrepancy_intervals_chart(
                         "avg_improvement",
                         "end_improvement",
                         "max_improvement",
+                        "forward_max_price",
+                        "forward_max_time_seconds",
+                        "forward_return",
+                        "forward_return_pct",
                         "flip_display",
                         "time_to_flip_display",
                         "correction_ratio_max",
@@ -554,10 +558,14 @@ def build_discrepancy_intervals_chart(
                     "Avg Improvement: %{customdata[13]:.4f}<br>"
                     "End Improvement: %{customdata[14]:.4f}<br>"
                     "Max Improvement: %{customdata[15]:.4f}<br>"
-                    "Flip: %{customdata[16]}<br>"
-                    "Time to Flip: %{customdata[17]}<br>"
-                    "Correction Ratio (Max): %{customdata[18]:.4f}<br>"
-                    "Resolution: %{customdata[19]}"
+                    "Forward Max Price: %{customdata[16]:.4f}<br>"
+                    "Time to Forward Max: %{customdata[17]:.1f}s<br>"
+                    "Forward Return: %{customdata[18]:+.4f}<br>"
+                    "Forward Return %: %{customdata[19]:+.2%}<br>"
+                    "Flip: %{customdata[20]}<br>"
+                    "Time to Flip: %{customdata[21]}<br>"
+                    "Correction Ratio (Max): %{customdata[22]:.4f}<br>"
+                    "Resolution: %{customdata[23]}"
                     "<extra></extra>"
                 ),
                 name="Lead Discrepancy",
@@ -590,6 +598,10 @@ def build_discrepancy_intervals_chart(
                         "avg_reversion",
                         "end_reversion",
                         "max_reversion",
+                        "forward_max_price",
+                        "forward_max_time_seconds",
+                        "forward_return",
+                        "forward_return_pct",
                         "dead_zone_display",
                         "time_to_dead_zone_display",
                         "reversion_ratio_max",
@@ -611,10 +623,14 @@ def build_discrepancy_intervals_chart(
                     "Avg Reversion: %{customdata[10]:.4f}<br>"
                     "End Reversion: %{customdata[11]:.4f}<br>"
                     "Max Reversion: %{customdata[12]:.4f}<br>"
-                    "Returned to Dead Zone: %{customdata[13]}<br>"
-                    "Time to Dead Zone: %{customdata[14]}<br>"
-                    "Reversion Ratio (Max): %{customdata[15]:.4f}<br>"
-                    "Resolution: %{customdata[16]}"
+                    "Forward Max Price: %{customdata[13]:.4f}<br>"
+                    "Time to Forward Max: %{customdata[14]:.1f}s<br>"
+                    "Forward Return: %{customdata[15]:+.4f}<br>"
+                    "Forward Return %: %{customdata[16]:+.2%}<br>"
+                    "Returned to Dead Zone: %{customdata[17]}<br>"
+                    "Time to Dead Zone: %{customdata[18]}<br>"
+                    "Reversion Ratio (Max): %{customdata[19]:.4f}<br>"
+                    "Resolution: %{customdata[20]}"
                     "<extra></extra>"
                 ),
                 name="Tie Discrepancy",
@@ -631,6 +647,199 @@ def build_discrepancy_intervals_chart(
     )
     fig.update_xaxes(title_text="Game Time")
     fig.update_yaxes(title_text="Interval")
+    return fig
+
+
+def build_regime_transitions_chart(
+    regime_df: pd.DataFrame | None,
+    title: str = "Regime Band Transitions",
+) -> go.Figure:
+    """Build grouped bars summarizing favorite-side band transitions."""
+    if regime_df is None or regime_df.empty:
+        return _empty_score_figure(f"{title}: no regime transitions", height=500)
+
+    grouped = _group_transition_rows(regime_df, "period")
+    time_grouped = _group_transition_rows(regime_df, "time_bin")
+    if grouped.empty and time_grouped.empty:
+        return _empty_score_figure(f"{title}: no regime transitions", height=500)
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=False,
+        vertical_spacing=0.16,
+        subplot_titles=("By Quarter", "By Time Bucket"),
+    )
+    colors = {"upgrade": "#4CAF50", "downgrade": "#EF5350"}
+
+    for direction in ("upgrade", "downgrade"):
+        subset = grouped[grouped["transition_direction"] == direction].sort_values("period")
+        if not subset.empty:
+            fig.add_trace(
+                go.Bar(
+                    x=[_period_label(period) for period in subset["period"]],
+                    y=subset["mean_forward_return"],
+                    name=direction.title(),
+                    marker=dict(
+                        color=colors[direction],
+                        opacity=[0.55 if low else 0.92 for low in subset["low_confidence"]],
+                    ),
+                    customdata=subset[["event_count", "transition_labels", "median_forward_return"]].values,
+                    hovertemplate=(
+                        "%{x}<br>"
+                        f"Direction: {direction.title()}<br>"
+                        "Mean Forward Return: %{y:+.4f}<br>"
+                        "Events: %{customdata[0]}<br>"
+                        "Transitions: %{customdata[1]}<br>"
+                        "Median Forward Return: %{customdata[2]:+.4f}"
+                        "<extra></extra>"
+                    ),
+                    legendgroup=direction,
+                    showlegend=True,
+                ),
+                row=1,
+                col=1,
+            )
+
+        subset = time_grouped[time_grouped["transition_direction"] == direction].sort_values("time_bin")
+        if not subset.empty:
+            fig.add_trace(
+                go.Bar(
+                    x=[_time_bucket_label(bucket) for bucket in subset["time_bin"]],
+                    y=subset["mean_forward_return"],
+                    name=direction.title(),
+                    marker=dict(
+                        color=colors[direction],
+                        opacity=[0.55 if low else 0.92 for low in subset["low_confidence"]],
+                    ),
+                    customdata=subset[["event_count", "transition_labels", "median_forward_return"]].values,
+                    hovertemplate=(
+                        "%{x}<br>"
+                        f"Direction: {direction.title()}<br>"
+                        "Mean Forward Return: %{y:+.4f}<br>"
+                        "Events: %{customdata[0]}<br>"
+                        "Transitions: %{customdata[1]}<br>"
+                        "Median Forward Return: %{customdata[2]:+.4f}"
+                        "<extra></extra>"
+                    ),
+                    legendgroup=direction,
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
+            )
+
+    fig.update_layout(
+        template="plotly_dark",
+        title=title,
+        height=500,
+        margin=dict(l=60, r=30, t=60, b=40),
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_yaxes(title_text="Mean Forward Return", row=1, col=1)
+    fig.update_yaxes(title_text="Mean Forward Return", row=2, col=1)
+    fig.update_xaxes(title_text="Quarter", row=1, col=1)
+    fig.update_xaxes(title_text="Minutes Since Tipoff", row=2, col=1)
+    return fig
+
+
+def build_dip_recovery_chart(
+    dip_df: pd.DataFrame | None,
+    title: str = "Price Dip Recovery",
+) -> go.Figure:
+    """Build grouped bars summarizing absolute-threshold dip recoveries."""
+    if dip_df is None or dip_df.empty:
+        return _empty_score_figure(f"{title}: no dip events for this game", height=500)
+
+    grouped = _group_dip_rows(dip_df, "period")
+    time_grouped = _group_dip_rows(dip_df, "time_bin")
+    if grouped.empty and time_grouped.empty:
+        return _empty_score_figure(f"{title}: no dip events for this game", height=500)
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=False,
+        vertical_spacing=0.16,
+        subplot_titles=("By Quarter", "By Time Bucket"),
+    )
+    threshold_colors = {
+        0.05: "#90CAF9",
+        0.04: "#42A5F5",
+        0.03: "#1E88E5",
+        0.02: "#1565C0",
+    }
+
+    for threshold in sorted(dip_df["threshold"].dropna().unique(), reverse=True):
+        subset = grouped[grouped["threshold"] == threshold].sort_values("period")
+        if not subset.empty:
+            fig.add_trace(
+                go.Bar(
+                    x=[_period_label(period) for period in subset["period"]],
+                    y=subset["mean_recovery_magnitude"],
+                    name=f"{threshold:.0%}",
+                    marker=dict(
+                        color=threshold_colors.get(float(threshold), "#90CAF9"),
+                        opacity=[0.55 if low else 0.92 for low in subset["low_confidence"]],
+                    ),
+                    customdata=subset[["event_count", "resolutions", "median_recovery_magnitude"]].values,
+                    hovertemplate=(
+                        "%{x}<br>"
+                        f"Threshold: {threshold:.0%}<br>"
+                        "Mean Recovery: %{y:.4f}<br>"
+                        "Events: %{customdata[0]}<br>"
+                        "Resolutions: %{customdata[1]}<br>"
+                        "Median Recovery: %{customdata[2]:.4f}"
+                        "<extra></extra>"
+                    ),
+                    legendgroup=f"{threshold:.0%}",
+                    showlegend=True,
+                ),
+                row=1,
+                col=1,
+            )
+
+        subset = time_grouped[time_grouped["threshold"] == threshold].sort_values("time_bin")
+        if not subset.empty:
+            fig.add_trace(
+                go.Bar(
+                    x=[_time_bucket_label(bucket) for bucket in subset["time_bin"]],
+                    y=subset["mean_recovery_magnitude"],
+                    name=f"{threshold:.0%}",
+                    marker=dict(
+                        color=threshold_colors.get(float(threshold), "#90CAF9"),
+                        opacity=[0.55 if low else 0.92 for low in subset["low_confidence"]],
+                    ),
+                    customdata=subset[["event_count", "resolutions", "median_recovery_magnitude"]].values,
+                    hovertemplate=(
+                        "%{x}<br>"
+                        f"Threshold: {threshold:.0%}<br>"
+                        "Mean Recovery: %{y:.4f}<br>"
+                        "Events: %{customdata[0]}<br>"
+                        "Resolutions: %{customdata[1]}<br>"
+                        "Median Recovery: %{customdata[2]:.4f}"
+                        "<extra></extra>"
+                    ),
+                    legendgroup=f"{threshold:.0%}",
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
+            )
+
+    fig.update_layout(
+        template="plotly_dark",
+        title=title,
+        height=500,
+        margin=dict(l=60, r=30, t=60, b=40),
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_yaxes(title_text="Mean Recovery Magnitude", row=1, col=1)
+    fig.update_yaxes(title_text="Mean Recovery Magnitude", row=2, col=1)
+    fig.update_xaxes(title_text="Quarter", row=1, col=1)
+    fig.update_xaxes(title_text="Minutes Since Tipoff", row=2, col=1)
     return fig
 
 
@@ -677,6 +886,36 @@ def _group_sensitivity(plotted: pd.DataFrame, bucket_field: str) -> pd.DataFrame
             event_count=("delta_price", "size"),
             median_delta=("delta_price", "median"),
             low_confidence=("low_confidence", "any"),
+        )
+        .reset_index()
+    )
+
+
+def _group_transition_rows(plotted: pd.DataFrame, bucket_field: str) -> pd.DataFrame:
+    """Aggregate regime transitions for grouped bar rendering."""
+    return (
+        plotted.groupby([bucket_field, "transition_direction"], dropna=False)
+        .agg(
+            mean_forward_return=("forward_return_max", "mean"),
+            median_forward_return=("forward_return_max", "median"),
+            event_count=("forward_return_max", "size"),
+            low_confidence=("low_confidence", "any"),
+            transition_labels=("transition_label", lambda values: ", ".join(sorted(set(values)))),
+        )
+        .reset_index()
+    )
+
+
+def _group_dip_rows(plotted: pd.DataFrame, bucket_field: str) -> pd.DataFrame:
+    """Aggregate dip recovery intervals for grouped bar rendering."""
+    return (
+        plotted.groupby([bucket_field, "threshold"], dropna=False)
+        .agg(
+            mean_recovery_magnitude=("recovery_magnitude", "mean"),
+            median_recovery_magnitude=("recovery_magnitude", "median"),
+            event_count=("recovery_magnitude", "size"),
+            low_confidence=("low_confidence", "any"),
+            resolutions=("resolution", lambda values: ", ".join(sorted(set(values)))),
         )
         .reset_index()
     )

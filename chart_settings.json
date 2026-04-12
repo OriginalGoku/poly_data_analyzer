@@ -16,5 +16,13 @@
   "discrepancy_dead_zone_low": 0.49,
   "discrepancy_dead_zone_high": 0.51,
   "discrepancy_min_trades": 5,
-  "discrepancy_max_trade_gap_seconds": 120
+  "discrepancy_max_trade_gap_seconds": 120,
+  "discrepancy_forward_return_horizon_minutes": 12,
+  "regime_forward_horizon_minutes": 12,
+  "regime_min_trades_in_window": 3,
+  "regime_max_trade_gap_seconds": 120,
+  "dip_thresholds": [0.05, 0.04, 0.03, 0.02],
+  "dip_min_trades": 3,
+  "dip_max_trade_gap_seconds": 120,
+  "dip_recovery_horizon_minutes": 15
 }

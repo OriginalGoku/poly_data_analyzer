@@ -2,7 +2,7 @@
 
 ## Overview
 
-Single-page Dash application that loads Polymarket trade data from disk and renders interactive Plotly charts plus per-game regime analytics. Current UI supports NBA, NHL, and MLB in a single-game view, with analytics computed from cross-game checkpoint data within the active sport and price-quality slice.
+Single-page Dash application that loads Polymarket trade data from disk and renders interactive Plotly charts plus per-game regime analytics. Current UI supports NBA, NHL, and MLB in a single-game view, with analytics computed from cross-game checkpoint data within the active sport and price-quality slice. The single-game view now also computes discrepancy forward returns, favorite-side band transitions, and absolute dip recovery intervals from in-game trade sequences.
 
 ## Components
 
@@ -47,6 +47,10 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - Event markers placed at nearest trade price (within 60s) or last known price
 - Whale trade markers on Row 1 are filtered by `whale_marker_min_trade_pct` to suppress tiny fills
 - Whale volume overlays on Row 2 are directional and taker-only; maker flow is intentionally excluded because side is not inferable
+- Additional single-game figures:
+  - `build_discrepancy_intervals_chart()` renders market-score discrepancy spans with forward-return hover metrics
+  - `build_regime_transitions_chart()` groups confirmed favorite-side band transitions into quarter/time-bucket summaries
+  - `build_dip_recovery_chart()` groups absolute threshold dip recoveries by quarter and time bucket
 
 ### `sensitivity.py` -- Event Sensitivity
 
@@ -55,6 +59,25 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - Derives `pre_lead`, `post_lead`, `lead_bin`, and `time_bin` for each scoring play
 - Caches computed rows to `cache/{date}/{match_id}_sensitivity.json` so repeated dashboard views do not recompute the same game
 - Supplies the row-level data used by the sensitivity timeline scatter and the quarter/time-bucket surface summaries
+
+### `discrepancy.py` -- Market-Score Discrepancies
+
+- Detects intervals where the scoreboard leader and the market favorite disagree, or where tied games trade outside the dead zone
+- Computes interval-level opportunity metrics (`avg_discrepancy`, `max_improvement`, `flip_flag`) plus forward-return metrics measured from the interval start over a configurable horizon
+- Caches rows to `cache/{date}/{match_id}_discrepancies.json`
+
+### `regime_transitions.py` -- Favorite-Side Band Transitions
+
+- Works from favorite-side probabilities only, per the project convention for regime analytics
+- Detects confirmed transitions between interpretable bands after a configurable number of confirming trades
+- Stores period, time bucket, transition direction, forward max/min price, and low-confidence flags for sparse windows or large gaps
+- Caches rows to `cache/{date}/{match_id}_regime_transitions.json`
+
+### `dip_recovery.py` -- Absolute Threshold Dip Recovery
+
+- Scans both team tokens during in-game trading windows for dips below configured absolute thresholds
+- Builds contiguous below-threshold intervals, tracks minimum price, recovery magnitude, and whether the interval recovered, remained below, or ended with the game
+- Caches rows to `cache/{date}/{match_id}_dip_recovery.json`
 
 ### `whales.py` -- Whale Analysis
 
@@ -67,12 +90,12 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 
 ### `app.py` -- Dash Application
 
-- Layout: dark theme, sport/date/game/price-quality controls, info cards (game metadata, pre-game summary, game analytics, chart settings), whale tracker card, sensitivity charts, and the pre-game/in-game figures
+- Layout: dark theme, sport/date/game/price-quality controls, info cards (game metadata, pre-game summary, game analytics, chart settings), whale tracker card, sensitivity charts, discrepancy chart, regime transition chart, dip recovery chart, and the pre-game/in-game figures
 - Whale tracker card renders separate full-width aggressor and maker sections rather than a shared two-column layout
 - Three callbacks:
   1. Populate sport dropdown from cached analytics records
   2. Populate date and game dropdowns from the active sport / price-quality slice
-  3. Load the selected game, run whale analysis, derive the top-10 non-maker taker whales, compute the sensitivity cache, build charts, and populate metadata / pre-game / analytics / whale cards
+  3. Load the selected game, run whale analysis, derive the top-10 non-maker taker whales, compute/load sensitivity, discrepancy, regime-transition, and dip-recovery caches, then build charts and populate metadata / pre-game / analytics / whale cards
 
 ## Data Flow
 

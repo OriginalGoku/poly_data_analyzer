@@ -1,6 +1,6 @@
 # Poly Data Analyzer
 
-Dash+Plotly visualizer for Polymarket sports market trade data. Renders price movement, trading volume, cumulative flow, whale activity, per-game regime analytics, and price sensitivity to scoring events for NBA, NHL, and MLB markets.
+Dash+Plotly visualizer for Polymarket sports market trade data. Renders price movement, trading volume, cumulative flow, whale activity, per-game regime analytics, price sensitivity to scoring events, market-score discrepancy intervals, regime transitions, and absolute dip recovery for NBA, NHL, and MLB markets.
 
 ## Features
 
@@ -9,6 +9,9 @@ Dash+Plotly visualizer for Polymarket sports market trade data. Renders price mo
 - **Volume bars** -- Stacked BUY (green) / SELL (red) volume per time bucket (1-min or 5-min based on trading span), plus team-specific taker whale overlays like `Lakers Whale Buy`
 - **Cumulative volume** -- Running total of USDC traded over time
 - **Price sensitivity to scoring** -- Per-event VWAP delta around scoring plays, plus a timeline scatter and binned surface showing mean sensitivity by game phase and lead context
+- **Market-score discrepancy intervals** -- Detects stretches where the score state and market favorite disagree, now with forward-return metrics in the hover so you can see how strongly the market reverted within the configured horizon
+- **Regime band transitions** -- Groups favorite-side band upgrades and downgrades by quarter and by time bucket, with forward return summaries after each confirmed transition
+- **Price dip recovery** -- Tracks absolute token-price dips below 5%, 4%, 3%, and 2% during in-game trading, including recovery magnitude, timing, and resolution status
 - **Game metadata cards** -- Trade count, total volume, price quality, data source, pre-game summary with opening price, drift, and pre-game volume
 - **Game analytics card** -- Shows market-open and tip-off favorite strength for the selected game, with refined interpretable bands (`Toss-Up`, `Lean Favorite`, `Lower Moderate`, `Upper Moderate`, `Lower Strong`, `Upper Strong`) and sport-specific quantile bands (`Q1`, `Q2`, `Q3`). The market-open anchor now uses a short post-threshold pregame VWAP/median window after cumulative volume reaches the configured `Pre-Game Min Cum Vol` threshold.
 - **Sport and price-quality filters** -- Slice the app by `NBA`, `NHL`, or `MLB`, and optionally restrict the analysis population to `all`, `exact`, or `inferred` checkpoint quality
@@ -47,12 +50,15 @@ Each date directory contains:
 ```
 app.py              # Dash app layout, dropdowns, callbacks, whale card builder
 analytics.py        # Cached game-level checkpoint analytics and regime band assignment
-charts.py           # Plotly figure builders (pregame: 3 rows, in-game: 4 rows with top aggressor cumulative; sensitivity charts)
+charts.py           # Plotly figure builders (pregame/in-game, sensitivity, discrepancy, regime transition, dip recovery)
+dip_recovery.py     # Absolute-threshold dip interval detection and per-game cache loader
+discrepancy.py      # Market-score discrepancy interval detection and per-game cache loader
 loaders.py          # Data loading (dates, games, trades, events, tricode mapping)
+regime_transitions.py # Favorite-side band transition detection and per-game cache loader
 sensitivity.py      # Per-event scoring sensitivity computation and cache loader
 whales.py           # Whale wallet identification, classification, side attribution, and trade-size stats
-chart_settings.json # Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)
-cache/              # Local computed artifacts, including per-game sensitivity JSON cache
+chart_settings.json # Configurable thresholds (volume spikes, whale detection, sensitivity/discrepancy/regime/dip windows)
+cache/              # Local computed artifacts, including sensitivity/discrepancy/regime/dip JSON caches
 requirements.txt    # Python dependencies
 DATA_SPEC.md        # Upstream data format specification
 data/               # Trade data directories (not checked in)

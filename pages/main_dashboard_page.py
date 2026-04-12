@@ -7,19 +7,23 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, dcc, html, no_update
+from dash import Input, Output, dash_table, dcc, html, no_update
+from dash.dash_table.Format import Format, Group, Scheme
 
 from analytics import ACTIVE_INTERPRETABLE_BAND_LABELS, build_analysis_summary, get_analytics_view
 from charts import (
     build_charts,
     build_discrepancy_intervals_chart,
+    build_regime_transitions_chart,
     build_score_chart,
     build_score_diff_chart,
     build_sensitivity_surface,
     build_sensitivity_timeline,
 )
+from dip_recovery import load_or_compute_dip_recovery
 from discrepancy import load_or_compute_discrepancies
 from loaders import get_available_sports_from_manifests, get_dates_for_sport, get_games_for_date_and_sport
+from regime_transitions import load_or_compute_regime_transitions
 from sensitivity import load_or_compute_sensitivity
 from view_helpers import CARD_STYLE, info_row, format_prob, format_quantile_cutoffs
 from whales import analyze_whales
@@ -167,6 +171,10 @@ class MainDashboardPage:
                 dcc.Loading(dcc.Graph(id="sensitivity-surface", style={"height": "520px"})),
                 html.H3("Market-Score Discrepancies", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="discrepancy-chart", style={"height": "360px"})),
+                html.H3("Regime Band Transitions", style={"marginTop": "20px", "marginBottom": "5px"}),
+                dcc.Loading(dcc.Graph(id="regime-transitions-chart", style={"height": "520px"})),
+                html.H3("Price Dip Recovery", style={"marginTop": "20px", "marginBottom": "5px"}),
+                dcc.Loading(html.Div(id="dip-recovery-tables")),
                 html.H3("In-Game", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="game-chart", style={"height": "700px"})),
             ]
@@ -241,6 +249,8 @@ class MainDashboardPage:
             Output("sensitivity-timeline", "figure"),
             Output("sensitivity-surface", "figure"),
             Output("discrepancy-chart", "figure"),
+            Output("regime-transitions-chart", "figure"),
+            Output("dip-recovery-tables", "children"),
             Output("game-card", "children"),
             Output("pregame-card", "children"),
             Output("analysis-card", "children"),
@@ -255,6 +265,8 @@ class MainDashboardPage:
         def update_game(selected_game, start_date, end_date, sport, price_quality_filter, bucket):
             if not selected_game or not start_date or not end_date or not sport:
                 return (
+                    no_update,
+                    no_update,
                     no_update,
                     no_update,
                     no_update,
@@ -285,6 +297,8 @@ class MainDashboardPage:
             game_row = analytics[(analytics["match_id"] == match_id) & (analytics["date"] == game_date)]
             if game_row.empty:
                 return (
+                    no_update,
+                    no_update,
                     no_update,
                     no_update,
                     no_update,
@@ -365,6 +379,26 @@ class MainDashboardPage:
                 discrepancy_df,
                 manifest,
             )
+            regime_df = load_or_compute_regime_transitions(
+                cache_dir,
+                game_date,
+                match_id,
+                trades_df,
+                data["events"],
+                manifest,
+                self.settings,
+            )
+            regime_fig = build_regime_transitions_chart(regime_df)
+            dip_df = load_or_compute_dip_recovery(
+                cache_dir,
+                game_date,
+                match_id,
+                trades_df,
+                data["events"],
+                manifest,
+                self.settings,
+            )
+            dip_tables = _build_dip_recovery_tables(dip_df, self.settings)
 
             if game_fig is None:
                 game_fig = go.Figure()
@@ -410,6 +444,8 @@ class MainDashboardPage:
                 sensitivity_timeline_fig,
                 sensitivity_surface_fig,
                 discrepancy_fig,
+                regime_fig,
+                dip_tables,
                 game_card,
                 pregame_card,
                 analysis_card,
@@ -505,6 +541,130 @@ def _build_analysis_card(summary: dict, price_quality_filter: str):
         info_row("Comparison Games", f"{summary['population_games']:,}"),
         anchor_block("Market Open Regime", open_data),
         anchor_block("Tip-Off Regime", tipoff_data),
+    ]
+
+
+def _build_dip_recovery_tables(dip_df, settings):
+    thresholds = tuple(float(value) for value in getattr(settings, "dip_thresholds", (0.05, 0.04, 0.03, 0.02)))
+    if dip_df is None or dip_df.empty:
+        return html.Div(
+            style=CARD_STYLE,
+            children=[html.P("No dip events found for this game.", style={"color": "#888", "margin": 0})],
+        )
+
+    cards = []
+    for threshold in sorted(thresholds, reverse=True):
+        subset = dip_df[dip_df["threshold"] == threshold].copy()
+        subset = subset.sort_values("entry_time")
+        title = f"Below {threshold:.0%}"
+        if subset.empty:
+            cards.append(
+                html.Div(
+                    style={**CARD_STYLE, "minWidth": "320px"},
+                    children=[
+                        html.H4(title, style={"marginTop": 0, "marginBottom": "8px"}),
+                        html.P("No clustered dip intervals.", style={"color": "#888", "margin": 0}),
+                    ],
+                )
+            )
+            continue
+
+        table = subset[
+            [
+                "entry_time",
+                "team",
+                "score_at_entry",
+                "score_difference",
+                "duration_seconds",
+                "future_max_price",
+                "future_min_price",
+                "peak_rebound",
+                "time_to_peak_rebound_seconds",
+                "further_drawdown",
+            ]
+        ].copy()
+        table["entry_time"] = pd.to_datetime(table["entry_time"], utc=True).dt.strftime("%H:%M:%S")
+
+        cards.append(
+            html.Div(
+                style={**CARD_STYLE, "minWidth": "320px"},
+                children=[
+                    html.H4(title, style={"marginTop": 0, "marginBottom": "8px"}),
+                    dash_table.DataTable(
+                        data=table.to_dict("records"),
+                        columns=_build_dip_table_columns(),
+                        page_size=8,
+                        sort_action="native",
+                        style_table={"overflowX": "auto"},
+                        style_cell={
+                            "backgroundColor": "#141422",
+                            "color": "#eee",
+                            "border": "1px solid #333",
+                            "padding": "8px",
+                            "textAlign": "left",
+                            "fontFamily": "system-ui, sans-serif",
+                            "fontSize": "12px",
+                            "whiteSpace": "normal",
+                            "height": "auto",
+                        },
+                        style_header={
+                            "backgroundColor": "#1f1f33",
+                            "fontWeight": "bold",
+                            "border": "1px solid #333",
+                        },
+                    ),
+                ],
+            )
+        )
+
+    return html.Div(
+        style={"display": "flex", "flexDirection": "column", "gap": "20px"},
+        children=cards,
+    )
+
+
+def _build_dip_table_columns():
+    return [
+        {"name": "Entry Time", "id": "entry_time"},
+        {"name": "Team", "id": "team"},
+        {"name": "Score", "id": "score_at_entry"},
+        {"name": "Score Difference", "id": "score_difference"},
+        {
+            "name": "Duration (s)",
+            "id": "duration_seconds",
+            "type": "numeric",
+            "format": Format(group=Group.yes, precision=1, scheme=Scheme.fixed),
+        },
+        {
+            "name": "Future Max",
+            "id": "future_max_price",
+            "type": "numeric",
+            "format": Format(precision=4, scheme=Scheme.fixed),
+        },
+        {
+            "name": "Future Min",
+            "id": "future_min_price",
+            "type": "numeric",
+            "format": Format(precision=4, scheme=Scheme.fixed),
+        },
+        {
+            "name": "Peak Rebound",
+            "id": "peak_rebound",
+            "type": "numeric",
+            "format": Format(precision=4, scheme=Scheme.fixed),
+        },
+        {
+            "name": "Time To Peak Rebound (s)",
+            "id": "time_to_peak_rebound_seconds",
+            "type": "numeric",
+            "format": Format(group=Group.yes, precision=1, scheme=Scheme.fixed),
+        },
+        {
+            "name": "Further Drawdown",
+            "id": "further_drawdown",
+            "type": "numeric",
+            "format": Format(precision=4, scheme=Scheme.fixed),
+        },
     ]
 
 
