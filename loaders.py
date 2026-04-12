@@ -181,6 +181,31 @@ def _build_tricode_map(events: list[dict], manifest: dict) -> dict:
     return tricode_map
 
 
+def _derive_nba_final_score(events: list[dict] | None) -> tuple[int, int] | None:
+    """Return the final away/home score from the last NBA event."""
+    if not events:
+        return None
+    last_event = events[-1] or {}
+    away_score = last_event.get("away_score")
+    home_score = last_event.get("home_score")
+    if away_score is None or home_score is None:
+        return None
+    return int(away_score), int(home_score)
+
+
+def _derive_nba_final_winner(manifest: dict, events: list[dict] | None) -> str | None:
+    """Derive the NBA winner from the last event's score."""
+    final_score = _derive_nba_final_score(events)
+    if final_score is None:
+        return None
+    away_score, home_score = final_score
+    if away_score == home_score:
+        return None
+    if away_score > home_score:
+        return manifest.get("away_team")
+    return manifest.get("home_team")
+
+
 def _parse_iso(s: str | None) -> datetime | None:
     """Parse ISO timestamp string to timezone-aware datetime, or None."""
     if not s:

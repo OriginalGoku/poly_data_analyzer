@@ -103,8 +103,13 @@ def write_summary_file(run_dir: Path, summary, filters: AnalysisFilters, group_b
         "## Headline Metrics",
         f"- Games: `{summary.games}`",
         f"- Dropped by open filter: `{summary.dropped_open_filter_games}`",
+        f"- Games with outcome: `{summary.outcome_games}`",
+        f"- Games with open prediction: `{summary.open_prediction_games}`",
+        f"- Games with tip-off prediction: `{summary.tipoff_prediction_games}`",
         f"- Open-to-tipoff swing rate: `{_format_pct(summary.open_to_tipoff_swing_rate)}`",
         f"- Any pregame favorite switch: `{_format_pct(summary.any_pregame_switch_rate)}`",
+        f"- Open favorite win rate: `{_format_pct(summary.open_favorite_win_rate)}`",
+        f"- Tip-off favorite win rate: `{_format_pct(summary.tipoff_favorite_win_rate)}`",
         f"- Mean absolute move: `{_format_number(summary.mean_abs_move)}`",
         f"- Mean realized volatility: `{_format_number(summary.mean_path_volatility)}`",
         "",
@@ -147,6 +152,26 @@ def main():
 
     grouped = service.build_group_summary(dataset, args.group_by)
     grouped.to_csv(run_dir / "group_summary.csv", index=False)
+    service.build_group_summary(dataset, "open_interpretable_band").to_csv(
+        run_dir / "open_band_outcome_summary.csv",
+        index=False,
+    )
+    service.build_group_summary(dataset, "tipoff_interpretable_band").to_csv(
+        run_dir / "tipoff_band_outcome_summary.csv",
+        index=False,
+    )
+    service.build_group_summary(dataset, "price_quality").to_csv(
+        run_dir / "price_quality_outcome_summary.csv",
+        index=False,
+    )
+    service.build_transition_outcome_summary(dataset).to_csv(
+        run_dir / "interpretable_transition_outcome_summary.csv",
+        index=False,
+    )
+    service.build_coverage_summary(
+        dataset,
+        dropped_open_filter_games=prepared.dropped_open_filter_games,
+    ).to_csv(run_dir / "coverage_summary.csv", index=False)
 
     transition = service.build_transition_matrix(dataset, "open_interpretable_band", "tipoff_interpretable_band")
     transition.to_csv(run_dir / "interpretable_transition_matrix.csv")

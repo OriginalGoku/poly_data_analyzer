@@ -91,6 +91,12 @@ def test_service_computes_swing_and_pregame_instability(tmp_path):
 
     assert len(dataset) == 1
     row = dataset.iloc[0]
+    assert row["final_winner"] == "A"
+    assert bool(row["has_outcome"]) is True
+    assert bool(row["open_prediction_available"]) is True
+    assert bool(row["tipoff_prediction_available"]) is True
+    assert bool(row["open_favorite_won"]) is True
+    assert bool(row["tipoff_favorite_won"]) is False
     assert bool(row["favorite_changed_open_to_tipoff"]) is True
     assert row["favorite_switch_count_pregame"] == 1
     assert bool(row["any_favorite_switch_pregame"]) is True
@@ -165,3 +171,134 @@ def test_prepare_dataset_reports_games_dropped_by_open_filter(tmp_path):
 
     assert prepared.dropped_open_filter_games == 1
     assert list(prepared.dataset["match_id"]) == ["nba-keep"]
+
+
+def test_summary_and_grouped_outcome_metrics_handle_missing_coverage(tmp_path):
+    date_dir = tmp_path / "2026-04-10"
+    entries = [
+        {
+            "match_id": "nba-full",
+            "sport": "nba",
+            "status": "collected",
+            "away_team": "Away",
+            "home_team": "Home",
+            "outcomes": ["Away", "Home"],
+            "token_ids": ["a1", "h1"],
+        },
+        {
+            "match_id": "nba-missing",
+            "sport": "nba",
+            "status": "collected",
+            "away_team": "Road",
+            "home_team": "Host",
+            "outcomes": ["Road", "Host"],
+            "token_ids": ["a2", "h2"],
+        },
+    ]
+    _write_manifest(date_dir / "manifest.json", entries)
+    _write_json_gz(
+        date_dir / "nba-full_trades.json.gz",
+        {
+            "match_id": "nba-full",
+            "sport": "nba",
+            "price_checkpoints_meta": {"price_quality": "exact"},
+            "price_checkpoints": {
+                "a1": {
+                    "selected_early_price": 0.35,
+                    "selected_early_price_source": "clob_open",
+                    "last_pregame_trade_price": 0.40,
+                },
+                "h1": {
+                    "selected_early_price": 0.65,
+                    "selected_early_price_source": "clob_open",
+                    "last_pregame_trade_price": 0.60,
+                },
+            },
+            "trades": [
+                {"timestamp": 1, "asset": "a1", "price": 0.35, "size": 3000},
+                {"timestamp": 2, "asset": "h1", "price": 0.65, "size": 3000},
+            ],
+        },
+    )
+    _write_json_gz(
+        date_dir / "nba-full_events.json.gz",
+        {
+            "events": [
+                {"time_actual": "2026-04-10T19:00:00Z", "away_score": 98, "home_score": 100},
+            ]
+        },
+    )
+    _write_json_gz(
+        date_dir / "nba-missing_trades.json.gz",
+        {
+            "match_id": "nba-missing",
+            "sport": "nba",
+            "price_checkpoints_meta": {"price_quality": "inferred"},
+            "price_checkpoints": {
+                "a2": {
+                    "selected_early_price": 0.45,
+                    "selected_early_price_source": "first_pregame_trade",
+                    "last_pregame_trade_price": None,
+                },
+                "h2": {
+                    "selected_early_price": 0.55,
+                    "selected_early_price_source": "first_pregame_trade",
+                    "last_pregame_trade_price": None,
+                },
+            },
+            "trades": [
+                {"timestamp": 1, "asset": "a2", "price": 0.45, "size": 3000},
+                {"timestamp": 2, "asset": "h2", "price": 0.55, "size": 3000},
+            ],
+        },
+    )
+
+    service = NBAOpenTipoffAnalysisService(str(tmp_path), ChartSettings(pregame_min_cum_vol=5000))
+    prepared = service.prepare_dataset(AnalysisFilters())
+    dataset = prepared.dataset
+
+    assert len(dataset) == 2
+    full_row = dataset[dataset["match_id"] == "nba-full"].iloc[0]
+    missing_row = dataset[dataset["match_id"] == "nba-missing"].iloc[0]
+    assert bool(full_row["open_favorite_won"]) is True
+    assert bool(full_row["tipoff_favorite_won"]) is True
+    assert full_row["final_winner"] == "Home"
+    assert missing_row["final_winner"] is None
+    assert bool(missing_row["has_outcome"]) is False
+    assert bool(missing_row["open_prediction_available"]) is False
+    assert bool(missing_row["tipoff_prediction_available"]) is False
+    assert missing_row["open_favorite_won"] is None
+    assert missing_row["tipoff_favorite_won"] is None
+
+    summary = service.build_summary(dataset, dropped_open_filter_games=prepared.dropped_open_filter_games)
+    assert summary.games == 2
+    assert summary.outcome_games == 1
+    assert summary.open_prediction_games == 1
+    assert summary.tipoff_prediction_games == 1
+    assert summary.open_favorite_win_rate == pytest.approx(1.0)
+    assert summary.tipoff_favorite_win_rate == pytest.approx(1.0)
+
+    grouped = service.build_group_summary(dataset, "price_quality")
+    exact = grouped[grouped["price_quality"] == "exact"].iloc[0]
+    inferred = grouped[grouped["price_quality"] == "inferred"].iloc[0]
+    assert exact["outcome_games"] == 1
+    assert exact["open_prediction_games"] == 1
+    assert exact["tipoff_prediction_games"] == 1
+    assert exact["open_favorite_win_rate"] == pytest.approx(1.0)
+    assert exact["tipoff_favorite_win_rate"] == pytest.approx(1.0)
+    assert inferred["outcome_games"] == 0
+    assert inferred["open_prediction_games"] == 0
+    assert inferred["tipoff_prediction_games"] == 0
+    assert inferred["open_favorite_win_rate"] != inferred["open_favorite_win_rate"]
+    assert inferred["tipoff_favorite_win_rate"] != inferred["tipoff_favorite_win_rate"]
+
+    transition = service.build_transition_outcome_summary(dataset)
+    assert "open_favorite_win_rate" in transition.columns
+    coverage = service.build_coverage_summary(dataset, dropped_open_filter_games=0)
+    assert set(coverage["metric"]) >= {
+        "filtered_games",
+        "outcome_games",
+        "missing_outcome_games",
+        "open_prediction_games",
+        "tipoff_prediction_games",
+    }

@@ -19,7 +19,7 @@ from analytics import (
     build_game_analytics_dataset,
     get_analytics_view,
 )
-from loaders import load_game
+from loaders import _derive_nba_final_winner, load_game
 from settings import ChartSettings
 
 
@@ -54,8 +54,13 @@ class NBAOpenTipoffSummary:
 
     games: int
     dropped_open_filter_games: int
+    outcome_games: int
+    open_prediction_games: int
+    tipoff_prediction_games: int
     open_to_tipoff_swing_rate: float | None
     any_pregame_switch_rate: float | None
+    open_favorite_win_rate: float | None
+    tipoff_favorite_win_rate: float | None
     mean_abs_move: float | None
     mean_path_volatility: float | None
 
@@ -308,13 +313,30 @@ class NBAOpenTipoffAnalysisService:
 
     def build_summary(self, dataset: pd.DataFrame, dropped_open_filter_games: int = 0) -> NBAOpenTipoffSummary:
         if dataset.empty:
-            return NBAOpenTipoffSummary(0, dropped_open_filter_games, None, None, None, None)
+            return NBAOpenTipoffSummary(
+                0,
+                dropped_open_filter_games,
+                0,
+                0,
+                0,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
 
         return NBAOpenTipoffSummary(
             games=len(dataset),
             dropped_open_filter_games=dropped_open_filter_games,
+            outcome_games=_safe_true_count(dataset["has_outcome"]),
+            open_prediction_games=_safe_true_count(dataset["open_prediction_available"]),
+            tipoff_prediction_games=_safe_true_count(dataset["tipoff_prediction_available"]),
             open_to_tipoff_swing_rate=_safe_mean(dataset["favorite_changed_open_to_tipoff"].astype(float)),
             any_pregame_switch_rate=_safe_mean(dataset["any_favorite_switch_pregame"].astype(float)),
+            open_favorite_win_rate=_nullable_bool_rate(dataset["open_favorite_won"]),
+            tipoff_favorite_win_rate=_nullable_bool_rate(dataset["tipoff_favorite_won"]),
             mean_abs_move=_safe_mean(dataset["favorite_move_abs"]),
             mean_path_volatility=_safe_mean(dataset["favorite_price_realized_volatility"]),
         )
@@ -338,8 +360,13 @@ class NBAOpenTipoffAnalysisService:
         grouped = dataset.groupby(group_by, dropna=False)
         summary = grouped.agg(
             games=("match_id", "count"),
+            outcome_games=("has_outcome", _safe_true_count),
+            open_prediction_games=("open_prediction_available", _safe_true_count),
+            tipoff_prediction_games=("tipoff_prediction_available", _safe_true_count),
             open_to_tipoff_swing_rate=("favorite_changed_open_to_tipoff", lambda s: float(pd.Series(s).mean())),
             any_pregame_switch_rate=("any_favorite_switch_pregame", lambda s: float(pd.Series(s).mean())),
+            open_favorite_win_rate=("open_favorite_won", _nullable_bool_rate),
+            tipoff_favorite_win_rate=("tipoff_favorite_won", _nullable_bool_rate),
             mean_signed_move=("favorite_move_signed", "mean"),
             median_signed_move=("favorite_move_signed", "median"),
             mean_abs_move=("favorite_move_abs", "mean"),
@@ -362,6 +389,54 @@ class NBAOpenTipoffAnalysisService:
         if ordered is not None:
             return ordered.reset_index(drop=True)
         return summary.sort_values("games", ascending=False).reset_index(drop=True)
+
+    def build_transition_outcome_summary(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        return self.build_group_summary(dataset, "interpretable_transition")
+
+    def build_coverage_summary(self, dataset: pd.DataFrame, dropped_open_filter_games: int = 0) -> pd.DataFrame:
+        games = int(len(dataset))
+        outcome_games = _safe_true_count(dataset["has_outcome"]) if not dataset.empty else 0
+        open_prediction_games = _safe_true_count(dataset["open_prediction_available"]) if not dataset.empty else 0
+        tipoff_prediction_games = _safe_true_count(dataset["tipoff_prediction_available"]) if not dataset.empty else 0
+        rows = [
+            {"metric": "filtered_games", "count": games, "share_of_filtered_games": 1.0 if games else None},
+            {
+                "metric": "dropped_open_filter_games",
+                "count": int(dropped_open_filter_games),
+                "share_of_filtered_games": None,
+            },
+            {
+                "metric": "outcome_games",
+                "count": outcome_games,
+                "share_of_filtered_games": _safe_share(outcome_games, games),
+            },
+            {
+                "metric": "missing_outcome_games",
+                "count": games - outcome_games,
+                "share_of_filtered_games": _safe_share(games - outcome_games, games),
+            },
+            {
+                "metric": "open_prediction_games",
+                "count": open_prediction_games,
+                "share_of_filtered_games": _safe_share(open_prediction_games, games),
+            },
+            {
+                "metric": "missing_open_prediction_games",
+                "count": games - open_prediction_games,
+                "share_of_filtered_games": _safe_share(games - open_prediction_games, games),
+            },
+            {
+                "metric": "tipoff_prediction_games",
+                "count": tipoff_prediction_games,
+                "share_of_filtered_games": _safe_share(tipoff_prediction_games, games),
+            },
+            {
+                "metric": "missing_tipoff_prediction_games",
+                "count": games - tipoff_prediction_games,
+                "share_of_filtered_games": _safe_share(games - tipoff_prediction_games, games),
+            },
+        ]
+        return pd.DataFrame(rows)
 
     def build_transition_matrix(self, dataset: pd.DataFrame, from_col: str, to_col: str) -> pd.DataFrame:
         if dataset.empty:
@@ -637,6 +712,22 @@ def _build_nba_analysis_dataset(
             merged.get("open_favorite_team"),
             merged.get("tipoff_favorite_team"),
         )
+        merged["open_prediction_available"] = _prediction_available(
+            merged.get("open_favorite_team"),
+            merged.get("final_winner"),
+        )
+        merged["tipoff_prediction_available"] = _prediction_available(
+            merged.get("tipoff_favorite_team"),
+            merged.get("final_winner"),
+        )
+        merged["open_favorite_won"] = _favorite_won(
+            merged.get("open_favorite_team"),
+            merged.get("final_winner"),
+        )
+        merged["tipoff_favorite_won"] = _favorite_won(
+            merged.get("tipoff_favorite_team"),
+            merged.get("final_winner"),
+        )
         merged["interpretable_transition"] = _build_transition_label(
             merged.get("open_interpretable_band"),
             merged.get("tipoff_interpretable_band"),
@@ -697,7 +788,15 @@ def _load_nba_detail_row(
     )
     path_analyzer = PregameFavoritePathAnalyzer(settings)
     game = load_game(data_dir, date, match_id)
-    return path_analyzer.compute_metrics(game["trades_df"], game["events"])
+    details = path_analyzer.compute_metrics(game["trades_df"], game["events"])
+    final_winner = _derive_nba_final_winner(game["manifest"], game["events"])
+    details.update(
+        {
+            "final_winner": final_winner,
+            "has_outcome": final_winner is not None,
+        }
+    )
+    return details
 
 
 def _favorite_changed(open_team: str | None, tipoff_team: str | None) -> bool:
@@ -747,6 +846,18 @@ def _compute_signed_move(open_price: float | None, tipoff_price: float | None) -
     return float(tipoff_price) - float(open_price)
 
 
+def _prediction_available(favorite_team: str | None, final_winner: str | None) -> bool:
+    if not final_winner or not favorite_team or favorite_team == "Tie":
+        return False
+    return True
+
+
+def _favorite_won(favorite_team: str | None, final_winner: str | None) -> bool | None:
+    if not _prediction_available(favorite_team, final_winner):
+        return None
+    return bool(favorite_team == final_winner)
+
+
 def _apply_dark_theme(fig: go.Figure) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
@@ -763,6 +874,24 @@ def _safe_mean(series: pd.Series) -> float | None:
     if clean.empty:
         return None
     return float(clean.mean())
+
+
+def _safe_true_count(series: pd.Series) -> int:
+    clean = pd.Series(series).fillna(False).astype(bool)
+    return int(clean.sum())
+
+
+def _nullable_bool_rate(series: pd.Series) -> float | None:
+    clean = pd.Series(series).dropna()
+    if clean.empty:
+        return None
+    return float(clean.astype(float).mean())
+
+
+def _safe_share(count: int, total: int) -> float | None:
+    if total <= 0:
+        return None
+    return float(count) / float(total)
 
 
 def _safe_std(series: pd.Series) -> float | None:
