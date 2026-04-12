@@ -1,9 +1,16 @@
 {
+  "open_anchor_stat": "vwap",
+  "open_anchor_window_min": 5,
+  "analysis_min_open_favorite_price": 0.5,
   "vol_spike_std": 2.0,
   "vol_spike_lookback": 20,
   "pregame_min_cum_vol": 5000,
   "post_game_buffer_min": 10,
   "whale_min_volume_pct": 2.0,
   "whale_max_count": 10,
-  "whale_maker_threshold_pct": 60
+  "whale_maker_threshold_pct": 60,
+  "whale_marker_min_trade_pct": 0.25,
+  "sensitivity_price_window_trades": 5,
+  "sensitivity_lead_bin_close": 5,
+  "sensitivity_lead_bin_moderate": 12
 }
