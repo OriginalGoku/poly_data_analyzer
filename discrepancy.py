@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
+
+DISCREPANCY_CACHE_SCHEMA_VERSION = 3
 
 
 def compute_market_score_discrepancies(
@@ -33,8 +36,18 @@ def compute_market_score_discrepancies(
     low = float(getattr(settings, "discrepancy_dead_zone_low", 0.49))
     high = float(getattr(settings, "discrepancy_dead_zone_high", 0.51))
     min_trades = int(getattr(settings, "discrepancy_min_trades", 5))
+    max_trade_gap_seconds = int(getattr(settings, "discrepancy_max_trade_gap_seconds", 120))
 
     away_trades = trades_df[trades_df["asset"] == away_token].sort_values("datetime").copy()
+    if away_trades.empty:
+        return None
+    game_start = min(ev["time_actual_dt"] for ev in score_events)
+    game_end = max(ev["time_actual_dt"] for ev in score_events) + timedelta(
+        minutes=float(getattr(settings, "post_game_buffer_min", 10))
+    )
+    away_trades = away_trades[
+        (away_trades["datetime"] >= game_start) & (away_trades["datetime"] <= game_end)
+    ].copy()
     if away_trades.empty:
         return None
 
@@ -75,17 +88,15 @@ def compute_market_score_discrepancies(
     aligned["market_favorite"] = aligned["market_state"].apply(
         lambda state: _market_favorite_label(state, away_team, home_team)
     )
-    aligned["wrong_side_edge"] = aligned.apply(
-        lambda row: _wrong_side_edge(
+    aligned["discrepancy_value"] = aligned.apply(
+        lambda row: _discrepancy_value(
             row["price"],
             row["score_state"],
             row["market_state"],
-            low,
-            high,
         ),
         axis=1,
     )
-    aligned["discrepancy_active"] = aligned["wrong_side_edge"].notna()
+    aligned["discrepancy_active"] = aligned["discrepancy_value"].notna()
     active = aligned[aligned["discrepancy_active"]].copy()
     if active.empty:
         return None
@@ -94,6 +105,7 @@ def compute_market_score_discrepancies(
         (active["discrepancy_active"] != active["discrepancy_active"].shift(1))
         | (active["score_state"] != active["score_state"].shift(1))
         | (active["market_state"] != active["market_state"].shift(1))
+        | ((active["datetime"] - active["datetime"].shift(1)).dt.total_seconds() > max_trade_gap_seconds)
         | ((active["datetime"] - active["datetime"].shift(1)).dt.total_seconds() < 0)
     ).cumsum()
 
@@ -118,8 +130,9 @@ def compute_market_score_discrepancies(
                 "end_score": f"{end_row['away_score']}-{end_row['home_score']}",
                 "score_leader": start_row["score_leader"],
                 "market_favorite": start_row["market_favorite"],
-                "avg_wrong_side_edge": float(interval_df["wrong_side_edge"].mean()),
-                "max_wrong_side_edge": float(interval_df["wrong_side_edge"].max()),
+                "avg_discrepancy": float(interval_df["discrepancy_value"].mean()),
+                "max_discrepancy": float(interval_df["discrepancy_value"].max()),
+                "schema_version": DISCREPANCY_CACHE_SCHEMA_VERSION,
             }
         )
 
@@ -188,21 +201,19 @@ def _market_favorite_label(state: str, away_team: str, home_team: str) -> str:
     return "Near Even"
 
 
-def _wrong_side_edge(
+def _discrepancy_value(
     away_price: float,
     score_state: str,
     market_state: str,
-    low: float,
-    high: float,
 ) -> float | None:
     if score_state == "away_leading" and market_state == "home_favored":
-        return float(0.5 - away_price)
+        return float(1.0 - (2.0 * away_price))
     if score_state == "home_leading" and market_state == "away_favored":
-        return float(away_price - 0.5)
+        return float((2.0 * away_price) - 1.0)
     if score_state == "tied" and market_state == "away_favored":
-        return float(away_price - high)
+        return float(away_price - 0.5)
     if score_state == "tied" and market_state == "home_favored":
-        return float(low - away_price)
+        return float(0.5 - away_price)
     return None
 
 
@@ -227,7 +238,10 @@ def _cache_has_required_columns(df: pd.DataFrame) -> bool:
         "end_score",
         "score_leader",
         "market_favorite",
-        "avg_wrong_side_edge",
-        "max_wrong_side_edge",
+        "avg_discrepancy",
+        "max_discrepancy",
+        "schema_version",
     }
-    return required.issubset(df.columns)
+    if not required.issubset(df.columns):
+        return False
+    return df["schema_version"].nunique() == 1 and int(df["schema_version"].iloc[0]) == DISCREPANCY_CACHE_SCHEMA_VERSION

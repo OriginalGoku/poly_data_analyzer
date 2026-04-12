@@ -492,9 +492,9 @@ def build_discrepancy_intervals_chart(
             orientation="h",
             base=plotted["start_time"],
             marker=dict(
-                color=plotted["avg_wrong_side_edge"],
+                color=plotted["avg_discrepancy"],
                 colorscale="YlOrRd",
-                colorbar=dict(title="Avg Wrong-Side Edge"),
+                colorbar=dict(title="Avg Discrepancy"),
                 line=dict(color="#222", width=1),
             ),
             customdata=plotted[
@@ -506,8 +506,8 @@ def build_discrepancy_intervals_chart(
                     "end_score",
                     "score_leader",
                     "market_favorite",
-                    "avg_wrong_side_edge",
-                    "max_wrong_side_edge",
+                    "avg_discrepancy",
+                    "max_discrepancy",
                     "duration_min",
                 ]
             ].values,
@@ -520,8 +520,8 @@ def build_discrepancy_intervals_chart(
                 "Score: %{customdata[3]} → %{customdata[4]}<br>"
                 "Score Leader: %{customdata[5]}<br>"
                 "Market Favorite: %{customdata[6]}<br>"
-                "Avg Wrong-Side Edge: %{customdata[7]:.4f}<br>"
-                "Max Wrong-Side Edge: %{customdata[8]:.4f}"
+                "Avg Discrepancy: %{customdata[7]:.4f}<br>"
+                "Max Discrepancy: %{customdata[8]:.4f}"
                 "<extra></extra>"
             ),
             showlegend=False,
@@ -702,7 +702,6 @@ def _build_subplot_figure(
             customdata=away_score_leads,
             connectgaps=False,
             hovertemplate=(
-                "%{x}<br>"
                 "Score Lead: %{customdata}<br>"
                 f"Team: {away_label}<br>"
                 "Price: %{y:.3f}"
@@ -721,7 +720,6 @@ def _build_subplot_figure(
             customdata=home_score_leads,
             connectgaps=False,
             hovertemplate=(
-                "%{x}<br>"
                 f"Team: {home_label}<br>"
                 "Price: %{y:.3f}"
                 "<extra></extra>"

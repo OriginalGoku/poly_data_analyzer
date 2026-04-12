@@ -28,6 +28,7 @@ class ChartSettings:
     discrepancy_dead_zone_low: float = 0.49
     discrepancy_dead_zone_high: float = 0.51
     discrepancy_min_trades: int = 5
+    discrepancy_max_trade_gap_seconds: int = 120
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChartSettings":
@@ -52,6 +53,7 @@ class ChartSettings:
             "discrepancy_dead_zone_low": self.discrepancy_dead_zone_low,
             "discrepancy_dead_zone_high": self.discrepancy_dead_zone_high,
             "discrepancy_min_trades": self.discrepancy_min_trades,
+            "discrepancy_max_trade_gap_seconds": self.discrepancy_max_trade_gap_seconds,
         }
 
 

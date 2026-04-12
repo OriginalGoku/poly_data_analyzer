@@ -62,6 +62,7 @@ class TestDiscrepancyIntervals:
         assert row["score_state"] == "away_leading"
         assert row["market_state"] == "home_favored"
         assert row["trade_count"] == 5
+        assert abs(row["avg_discrepancy"] - 0.116) < 1e-9
 
     def test_home_leading_away_favored_creates_interval(self):
         base = _base_time()
@@ -80,6 +81,7 @@ class TestDiscrepancyIntervals:
         assert len(df) == 1
         assert df.iloc[0]["score_state"] == "home_leading"
         assert df.iloc[0]["market_state"] == "away_favored"
+        assert abs(df.iloc[0]["avg_discrepancy"] - 0.116) < 1e-9
 
     def test_tied_game_inside_dead_zone_is_not_discrepancy(self):
         base = _base_time()
@@ -107,6 +109,7 @@ class TestDiscrepancyIntervals:
         assert len(df) == 1
         assert df.iloc[0]["score_state"] == "tied"
         assert df.iloc[0]["market_state"] == "away_favored"
+        assert abs(df.iloc[0]["avg_discrepancy"] - 0.046) < 1e-9
 
     def test_interval_ends_when_market_realigns(self):
         base = _base_time()
@@ -169,6 +172,69 @@ class TestDiscrepancyIntervals:
 
         assert df is None
 
+    def test_long_trade_gaps_split_discrepancy_intervals(self):
+        base = _base_time()
+        trades = _trade_rows(
+            base,
+            [
+                (10, 0.45, 10),
+                (20, 0.44, 10),
+                (30, 0.43, 10),
+                (40, 0.44, 10),
+                (50, 0.45, 10),
+                (400, 0.44, 10),
+                (410, 0.44, 10),
+                (420, 0.43, 10),
+                (430, 0.44, 10),
+                (440, 0.45, 10),
+            ],
+        )
+        events = [
+            {"time_actual_dt": base, "away_score": 0, "home_score": 0, "event_type": "start", "period": 1},
+            {"time_actual_dt": base + timedelta(seconds=5), "away_score": 2, "home_score": 0, "event_type": "2pt", "period": 1},
+        ]
+
+        df = compute_market_score_discrepancies(trades, events, _manifest(), _settings())
+
+        assert df is not None
+        assert len(df) == 2
+        assert df.iloc[0]["trade_count"] == 5
+        assert df.iloc[1]["trade_count"] == 5
+
+    def test_postgame_trades_are_excluded_from_intervals(self):
+        base = _base_time()
+        trades = _trade_rows(
+            base,
+            [
+                (10, 0.45, 10),
+                (20, 0.44, 10),
+                (30, 0.43, 10),
+                (40, 0.44, 10),
+                (50, 0.45, 10),
+                (1000, 0.44, 10),
+                (1010, 0.44, 10),
+                (1020, 0.43, 10),
+                (1030, 0.44, 10),
+                (1040, 0.45, 10),
+            ],
+        )
+        events = [
+            {"time_actual_dt": base, "away_score": 0, "home_score": 0, "event_type": "start", "period": 1},
+            {"time_actual_dt": base + timedelta(seconds=5), "away_score": 2, "home_score": 0, "event_type": "2pt", "period": 1},
+            {"time_actual_dt": base + timedelta(seconds=60), "away_score": 2, "home_score": 1, "event_type": "ft", "period": 1},
+        ]
+
+        df = compute_market_score_discrepancies(
+            trades,
+            events,
+            _manifest(),
+            _settings(post_game_buffer_min=0),
+        )
+
+        assert df is not None
+        assert len(df) == 1
+        assert df.iloc[0]["trade_count"] == 5
+
     def test_cache_round_trip(self, tmp_path):
         base = _base_time()
         trades = _trade_rows(
@@ -211,8 +277,9 @@ class TestDiscrepancyChart:
                     "end_score": "2-0",
                     "score_leader": "Away (Away)",
                     "market_favorite": "Home (Home)",
-                    "avg_wrong_side_edge": 0.06,
-                    "max_wrong_side_edge": 0.08,
+                    "avg_discrepancy": 0.06,
+                    "max_discrepancy": 0.08,
+                    "schema_version": 3,
                 }
             ]
         )
