@@ -483,56 +483,151 @@ def build_discrepancy_intervals_chart(
     plotted = discrepancy_df.sort_values("start_time").copy()
     plotted["label"] = [f"D{i}" for i in range(1, len(plotted) + 1)]
     plotted["duration_min"] = plotted["duration_seconds"] / 60.0
+    plotted["flip_display"] = plotted.get("flip_flag", pd.Series(dtype=object)).map(
+        lambda value: "Yes" if value else "No"
+    )
+    plotted["time_to_flip_display"] = plotted.get(
+        "time_to_flip_seconds", pd.Series(dtype=float)
+    ).map(lambda value: "N/A" if pd.isna(value) else f"{value:.1f}s")
+    plotted["dead_zone_display"] = plotted.get(
+        "returned_to_dead_zone", pd.Series(dtype=object)
+    ).map(lambda value: "Yes" if value else "No")
+    plotted["time_to_dead_zone_display"] = plotted.get(
+        "time_to_dead_zone_seconds", pd.Series(dtype=float)
+    ).map(lambda value: "N/A" if pd.isna(value) else f"{value:.1f}s")
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=plotted["duration_min"],
-            y=plotted["label"],
-            orientation="h",
-            base=plotted["start_time"],
-            marker=dict(
-                color=plotted["avg_discrepancy"],
-                colorscale="YlOrRd",
-                colorbar=dict(title="Avg Discrepancy"),
-                line=dict(color="#222", width=1),
-            ),
-            customdata=plotted[
-                [
-                    "start_time",
-                    "end_time",
-                    "trade_count",
-                    "start_score",
-                    "end_score",
-                    "score_leader",
-                    "market_favorite",
-                    "avg_discrepancy",
-                    "max_discrepancy",
-                    "duration_min",
-                ]
-            ].values,
-            hovertemplate=(
-                "%{y}<br>"
-                "Start: %{customdata[0]}<br>"
-                "End: %{customdata[1]}<br>"
-                "Duration: %{customdata[9]:.2f} min<br>"
-                "Trades: %{customdata[2]}<br>"
-                "Score: %{customdata[3]} → %{customdata[4]}<br>"
-                "Score Leader: %{customdata[5]}<br>"
-                "Market Favorite: %{customdata[6]}<br>"
-                "Avg Discrepancy: %{customdata[7]:.4f}<br>"
-                "Max Discrepancy: %{customdata[8]:.4f}"
-                "<extra></extra>"
-            ),
-            showlegend=False,
+    lead_df = plotted[plotted["interval_type"] == "lead"].copy()
+    tie_df = plotted[plotted["interval_type"] == "tie"].copy()
+    if not lead_df.empty:
+        fig.add_trace(
+            go.Bar(
+                x=lead_df["duration_min"],
+                y=lead_df["label"],
+                orientation="h",
+                base=lead_df["start_time"],
+                marker=dict(
+                    color=lead_df["avg_discrepancy"],
+                    colorscale="YlOrRd",
+                    colorbar=dict(title="Avg Discrepancy"),
+                    line=dict(color="#222", width=1),
+                ),
+                customdata=lead_df[
+                    [
+                        "start_time",
+                        "end_time",
+                        "trade_count",
+                        "start_score",
+                        "end_score",
+                        "score_leader",
+                        "market_favorite",
+                        "avg_discrepancy",
+                        "max_discrepancy",
+                        "duration_min",
+                        "initial_discrepancy",
+                        "undervalued_side",
+                        "price_start",
+                        "avg_improvement",
+                        "end_improvement",
+                        "max_improvement",
+                        "flip_display",
+                        "time_to_flip_display",
+                        "correction_ratio_max",
+                        "resolution_type",
+                    ]
+                ].values,
+                hovertemplate=(
+                    "%{y}<br>"
+                    "Type: Lead discrepancy<br>"
+                    "Start: %{customdata[0]}<br>"
+                    "End: %{customdata[1]}<br>"
+                    "Duration: %{customdata[9]:.2f} min<br>"
+                    "Trades: %{customdata[2]}<br>"
+                    "Score: %{customdata[3]} → %{customdata[4]}<br>"
+                    "Score Leader: %{customdata[5]}<br>"
+                    "Market Favorite: %{customdata[6]}<br>"
+                    "Initial Discrepancy: %{customdata[10]:.4f}<br>"
+                    "Avg Discrepancy: %{customdata[7]:.4f}<br>"
+                    "Max Discrepancy: %{customdata[8]:.4f}<br>"
+                    "Undervalued Side: %{customdata[11]}<br>"
+                    "Start Price: %{customdata[12]:.4f}<br>"
+                    "Avg Improvement: %{customdata[13]:.4f}<br>"
+                    "End Improvement: %{customdata[14]:.4f}<br>"
+                    "Max Improvement: %{customdata[15]:.4f}<br>"
+                    "Flip: %{customdata[16]}<br>"
+                    "Time to Flip: %{customdata[17]}<br>"
+                    "Correction Ratio (Max): %{customdata[18]:.4f}<br>"
+                    "Resolution: %{customdata[19]}"
+                    "<extra></extra>"
+                ),
+                name="Lead Discrepancy",
+            )
         )
-    )
+    if not tie_df.empty:
+        fig.add_trace(
+            go.Bar(
+                x=tie_df["duration_min"],
+                y=tie_df["label"],
+                orientation="h",
+                base=tie_df["start_time"],
+                marker=dict(
+                    color=tie_df["avg_discrepancy"],
+                    colorscale="Blues",
+                    line=dict(color="#222", width=1),
+                ),
+                customdata=tie_df[
+                    [
+                        "start_time",
+                        "end_time",
+                        "trade_count",
+                        "start_score",
+                        "end_score",
+                        "avg_discrepancy",
+                        "max_discrepancy",
+                        "duration_min",
+                        "initial_discrepancy",
+                        "price_start",
+                        "avg_reversion",
+                        "end_reversion",
+                        "max_reversion",
+                        "dead_zone_display",
+                        "time_to_dead_zone_display",
+                        "reversion_ratio_max",
+                        "resolution_type",
+                    ]
+                ].values,
+                hovertemplate=(
+                    "%{y}<br>"
+                    "Type: Tie discrepancy<br>"
+                    "Start: %{customdata[0]}<br>"
+                    "End: %{customdata[1]}<br>"
+                    "Duration: %{customdata[7]:.2f} min<br>"
+                    "Trades: %{customdata[2]}<br>"
+                    "Score: %{customdata[3]} → %{customdata[4]}<br>"
+                    "Initial Distance From Fair: %{customdata[8]:.4f}<br>"
+                    "Avg Discrepancy: %{customdata[5]:.4f}<br>"
+                    "Max Discrepancy: %{customdata[6]:.4f}<br>"
+                    "Start Price: %{customdata[9]:.4f}<br>"
+                    "Avg Reversion: %{customdata[10]:.4f}<br>"
+                    "End Reversion: %{customdata[11]:.4f}<br>"
+                    "Max Reversion: %{customdata[12]:.4f}<br>"
+                    "Returned to Dead Zone: %{customdata[13]}<br>"
+                    "Time to Dead Zone: %{customdata[14]}<br>"
+                    "Reversion Ratio (Max): %{customdata[15]:.4f}<br>"
+                    "Resolution: %{customdata[16]}"
+                    "<extra></extra>"
+                ),
+                name="Tie Discrepancy",
+            )
+        )
     fig.update_layout(
         template="plotly_dark",
         title=title,
         height=360,
         margin=dict(l=60, r=30, t=50, b=40),
         hovermode="closest",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     fig.update_xaxes(title_text="Game Time")
     fig.update_yaxes(title_text="Interval")

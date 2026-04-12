@@ -134,6 +134,10 @@ class TestDiscrepancyIntervals:
         assert df is not None
         assert len(df) == 1
         assert df.iloc[0]["trade_count"] == 5
+        assert bool(df.iloc[0]["flip_flag"]) is True
+        assert abs(df.iloc[0]["time_to_flip_seconds"] - 50.0) < 1e-9
+        assert abs(df.iloc[0]["max_improvement"] - 0.07) < 1e-9
+        assert df.iloc[0]["resolution_type"] == "market_flip"
 
     def test_interval_ends_when_score_realigns(self):
         base = _base_time()
@@ -159,6 +163,8 @@ class TestDiscrepancyIntervals:
         assert df is not None
         assert len(df) == 1
         assert df.iloc[0]["end_score"] == "2-0"
+        assert bool(df.iloc[0]["flip_flag"]) is False
+        assert df.iloc[0]["resolution_type"] == "score_change"
 
     def test_intervals_with_fewer_than_minimum_trades_are_dropped(self):
         base = _base_time()
@@ -252,6 +258,34 @@ class TestDiscrepancyIntervals:
         assert first is not None
         assert second is not None
         assert len(first) == len(second)
+        assert "resolution_type" in second.columns
+
+    def test_tie_interval_tracks_dead_zone_reversion(self):
+        base = _base_time()
+        trades = _trade_rows(
+            base,
+            [
+                (10, 0.55, 10),
+                (20, 0.54, 10),
+                (30, 0.55, 10),
+                (40, 0.54, 10),
+                (50, 0.55, 10),
+                (60, 0.505, 10),
+                (70, 0.50, 10),
+            ],
+        )
+        events = [{"time_actual_dt": base, "away_score": 0, "home_score": 0, "event_type": "start", "period": 1}]
+
+        df = compute_market_score_discrepancies(trades, events, _manifest(), _settings())
+
+        assert df is not None
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["interval_type"] == "tie"
+        assert bool(row["returned_to_dead_zone"]) is True
+        assert abs(row["time_to_dead_zone_seconds"] - 50.0) < 1e-9
+        assert abs(row["max_reversion"] - 0.05) < 1e-9
+        assert row["resolution_type"] == "returned_to_dead_zone"
 
 
 class TestDiscrepancyChart:
@@ -267,19 +301,36 @@ class TestDiscrepancyChart:
             [
                 {
                     "interval_id": 1,
+                    "interval_type": "lead",
                     "start_time": base,
                     "end_time": base + timedelta(minutes=2),
                     "duration_seconds": 120.0,
                     "trade_count": 6,
                     "score_state": "away_leading",
                     "market_state": "home_favored",
+                    "score_gap_start": 2,
                     "start_score": "2-0",
                     "end_score": "2-0",
                     "score_leader": "Away (Away)",
                     "market_favorite": "Home (Home)",
+                    "initial_discrepancy": 0.1,
                     "avg_discrepancy": 0.06,
                     "max_discrepancy": 0.08,
-                    "schema_version": 3,
+                    "undervalued_side": "Away (Away)",
+                    "price_start": 0.45,
+                    "price_end": 0.52,
+                    "price_max": 0.54,
+                    "price_min": 0.44,
+                    "avg_improvement": 0.03,
+                    "end_improvement": 0.07,
+                    "max_improvement": 0.09,
+                    "max_drawdown": 0.01,
+                    "flip_flag": True,
+                    "time_to_flip_seconds": 48.0,
+                    "correction_ratio_end": 0.7,
+                    "correction_ratio_max": 0.9,
+                    "resolution_type": "market_flip",
+                    "schema_version": 4,
                 }
             ]
         )

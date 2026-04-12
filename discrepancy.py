@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-DISCREPANCY_CACHE_SCHEMA_VERSION = 3
+DISCREPANCY_CACHE_SCHEMA_VERSION = 4
 
 
 def compute_market_score_discrepancies(
@@ -78,15 +78,22 @@ def compute_market_score_discrepancies(
         on="datetime",
         direction="backward",
     )
-    aligned = aligned.dropna(subset=["score_state"]).copy()
+    aligned = aligned.dropna(subset=["score_state"]).reset_index(drop=True).copy()
     if aligned.empty:
         return None
 
+    aligned["price"] = aligned["price"].astype(float)
     aligned["away_score"] = aligned["away_score"].astype(int)
     aligned["home_score"] = aligned["home_score"].astype(int)
+    aligned["score_gap"] = (aligned["away_score"] - aligned["home_score"]).abs()
+    aligned["away_price"] = aligned["price"]
+    aligned["home_price"] = 1.0 - aligned["away_price"]
     aligned["market_state"] = aligned["price"].apply(lambda price: _market_state(price, low, high))
     aligned["market_favorite"] = aligned["market_state"].apply(
         lambda state: _market_favorite_label(state, away_team, home_team)
+    )
+    aligned["interval_type"] = aligned["score_state"].apply(
+        lambda state: "tie" if state == "tied" else "lead"
     )
     aligned["discrepancy_value"] = aligned.apply(
         lambda row: _discrepancy_value(
@@ -115,26 +122,33 @@ def compute_market_score_discrepancies(
             continue
         start_row = interval_df.iloc[0]
         end_row = interval_df.iloc[-1]
-        rows.append(
-            {
-                "interval_id": int(interval_id),
-                "start_time": start_row["datetime"],
-                "end_time": end_row["datetime"],
-                "duration_seconds": float(
-                    max((end_row["datetime"] - start_row["datetime"]).total_seconds(), 0.0)
-                ),
-                "trade_count": int(len(interval_df)),
-                "score_state": start_row["score_state"],
-                "market_state": start_row["market_state"],
-                "start_score": f"{start_row['away_score']}-{start_row['home_score']}",
-                "end_score": f"{end_row['away_score']}-{end_row['home_score']}",
-                "score_leader": start_row["score_leader"],
-                "market_favorite": start_row["market_favorite"],
-                "avg_discrepancy": float(interval_df["discrepancy_value"].mean()),
-                "max_discrepancy": float(interval_df["discrepancy_value"].max()),
-                "schema_version": DISCREPANCY_CACHE_SCHEMA_VERSION,
-            }
-        )
+        summary = {
+            "interval_id": int(interval_id),
+            "interval_type": start_row["interval_type"],
+            "start_time": start_row["datetime"],
+            "end_time": end_row["datetime"],
+            "duration_seconds": float(
+                max((end_row["datetime"] - start_row["datetime"]).total_seconds(), 0.0)
+            ),
+            "trade_count": int(len(interval_df)),
+            "score_state": start_row["score_state"],
+            "market_state": start_row["market_state"],
+            "score_gap_start": int(start_row["score_gap"]),
+            "start_score": f"{start_row['away_score']}-{start_row['home_score']}",
+            "end_score": f"{end_row['away_score']}-{end_row['home_score']}",
+            "score_leader": start_row["score_leader"],
+            "market_favorite": start_row["market_favorite"],
+            "initial_discrepancy": float(start_row["discrepancy_value"]),
+            "avg_discrepancy": float(interval_df["discrepancy_value"].mean()),
+            "max_discrepancy": float(interval_df["discrepancy_value"].max()),
+        }
+        window_df, score_changed = _resolution_window(aligned, int(interval_df.index[0]))
+        if start_row["interval_type"] == "lead":
+            summary.update(_summarize_lead_interval(start_row, window_df, score_changed))
+        else:
+            summary.update(_summarize_tie_interval(start_row, window_df, score_changed))
+        summary["schema_version"] = DISCREPANCY_CACHE_SCHEMA_VERSION
+        rows.append(summary)
 
     if not rows:
         return None
@@ -217,6 +231,113 @@ def _discrepancy_value(
     return None
 
 
+def _resolution_window(aligned: pd.DataFrame, start_pos: int) -> tuple[pd.DataFrame, bool]:
+    """Return the contiguous same-score-state window starting at start_pos."""
+    start_state = aligned.iloc[start_pos]["score_state"]
+    end_pos = start_pos
+    score_changed = False
+    for pos in range(start_pos + 1, len(aligned)):
+        if aligned.iloc[pos]["score_state"] != start_state:
+            score_changed = True
+            break
+        end_pos = pos
+    return aligned.iloc[start_pos : end_pos + 1].copy(), score_changed
+
+
+def _summarize_lead_interval(
+    start_row: pd.Series,
+    window_df: pd.DataFrame,
+    score_changed: bool,
+) -> dict:
+    """Summarize opportunity and resolution metrics for a lead discrepancy."""
+    is_away_undervalued = start_row["score_state"] == "away_leading"
+    aligned_market_state = "away_favored" if is_away_undervalued else "home_favored"
+    undervalued_side = start_row["score_leader"]
+    price_series = window_df["away_price"] if is_away_undervalued else window_df["home_price"]
+    price_start = float(price_series.iloc[0])
+    price_end = float(price_series.iloc[-1])
+    price_max = float(price_series.max())
+    price_min = float(price_series.min())
+    improvements = price_series - price_start
+    flip_rows = window_df[window_df["market_state"] == aligned_market_state]
+    rebalanced_rows = window_df[window_df["market_state"] == "near_even"]
+    initial_discrepancy = float(start_row["discrepancy_value"])
+
+    flip_flag = not flip_rows.empty
+    time_to_flip_seconds = (
+        float((flip_rows.iloc[0]["datetime"] - start_row["datetime"]).total_seconds())
+        if flip_flag
+        else None
+    )
+    if flip_flag:
+        resolution_type = "market_flip"
+    elif not rebalanced_rows.empty:
+        resolution_type = "market_rebalanced"
+    elif score_changed:
+        resolution_type = "score_change"
+    else:
+        resolution_type = "expired_without_flip"
+
+    return {
+        "undervalued_side": undervalued_side,
+        "price_start": price_start,
+        "price_end": price_end,
+        "price_max": price_max,
+        "price_min": price_min,
+        "avg_improvement": float(improvements.mean()),
+        "end_improvement": float(price_end - price_start),
+        "max_improvement": float(price_max - price_start),
+        "max_drawdown": float(max(price_start - price_min, 0.0)),
+        "flip_flag": flip_flag,
+        "time_to_flip_seconds": time_to_flip_seconds,
+        "correction_ratio_end": float((price_end - price_start) / initial_discrepancy),
+        "correction_ratio_max": float((price_max - price_start) / initial_discrepancy),
+        "resolution_type": resolution_type,
+    }
+
+
+def _summarize_tie_interval(
+    start_row: pd.Series,
+    window_df: pd.DataFrame,
+    score_changed: bool,
+) -> dict:
+    """Summarize reversion metrics for a tie discrepancy."""
+    distance_series = (window_df["away_price"] - 0.5).abs()
+    distance_start = float(distance_series.iloc[0])
+    distance_end = float(distance_series.iloc[-1])
+    distance_min = float(distance_series.min())
+    reversions = distance_start - distance_series
+    dead_zone_rows = window_df[window_df["market_state"] == "near_even"]
+    returned_to_dead_zone = not dead_zone_rows.empty
+    time_to_dead_zone_seconds = (
+        float((dead_zone_rows.iloc[0]["datetime"] - start_row["datetime"]).total_seconds())
+        if returned_to_dead_zone
+        else None
+    )
+    if returned_to_dead_zone:
+        resolution_type = "returned_to_dead_zone"
+    elif score_changed:
+        resolution_type = "score_change"
+    else:
+        resolution_type = "expired_without_reversion"
+
+    return {
+        "price_start": float(start_row["away_price"]),
+        "price_end": float(window_df.iloc[-1]["away_price"]),
+        "distance_start": distance_start,
+        "distance_end": distance_end,
+        "distance_min": distance_min,
+        "avg_reversion": float(reversions.mean()),
+        "end_reversion": float(distance_start - distance_end),
+        "max_reversion": float(distance_start - distance_min),
+        "returned_to_dead_zone": returned_to_dead_zone,
+        "time_to_dead_zone_seconds": time_to_dead_zone_seconds,
+        "reversion_ratio_end": float((distance_start - distance_end) / distance_start),
+        "reversion_ratio_max": float((distance_start - distance_min) / distance_start),
+        "resolution_type": resolution_type,
+    }
+
+
 def _serialize_rows(df: pd.DataFrame) -> list[dict]:
     records = df.to_dict("records")
     for record in records:
@@ -234,12 +355,18 @@ def _cache_has_required_columns(df: pd.DataFrame) -> bool:
         "trade_count",
         "score_state",
         "market_state",
+        "interval_type",
+        "score_gap_start",
         "start_score",
         "end_score",
         "score_leader",
         "market_favorite",
+        "initial_discrepancy",
         "avg_discrepancy",
         "max_discrepancy",
+        "price_start",
+        "price_end",
+        "resolution_type",
         "schema_version",
     }
     if not required.issubset(df.columns):
