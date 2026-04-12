@@ -1,8 +1,10 @@
 """Data loaders for Polymarket NBA game data."""
 
+import gzip
 import json
 import os
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -20,17 +22,35 @@ def get_available_dates(data_dir: str = "data") -> list[str]:
     return dates
 
 
+def get_available_sports_from_manifests(data_dir: str = "data") -> list[str]:
+    """Return available collected sports from manifest metadata only."""
+    index = load_manifest_index(data_dir)
+    if index.empty:
+        return []
+    return sorted(index["sport"].dropna().unique())
+
+
+def get_dates_for_sport(data_dir: str, sport: str) -> list[str]:
+    """Return available dates for a sport using manifest metadata only."""
+    index = load_manifest_index(data_dir)
+    if index.empty:
+        return []
+    filtered = index[index["sport"] == sport]
+    return sorted(filtered["date"].dropna().unique(), reverse=True)
+
+
+def get_games_for_date_and_sport(data_dir: str, date: str, sport: str) -> list[dict]:
+    """Return collected games for a date+sport using manifest metadata only."""
+    index = load_manifest_index(data_dir)
+    if index.empty:
+        return []
+    filtered = index[(index["date"] == date) & (index["sport"] == sport)]
+    return filtered.sort_values("label").to_dict("records")
+
+
 def get_nba_games(data_dir: str, date: str) -> list[dict]:
     """Load manifest for a date, return NBA collected games."""
-    manifest_path = Path(data_dir) / date / "manifest.json"
-    if not manifest_path.exists():
-        return []
-    with open(manifest_path) as f:
-        entries = json.load(f)
-    return [
-        g for g in entries
-        if g.get("sport") == "nba" and g.get("status") == "collected"
-    ]
+    return get_games_for_date_and_sport(data_dir, date, "nba")
 
 
 def load_game(data_dir: str, date: str, match_id: str) -> dict:
@@ -53,9 +73,8 @@ def load_game(data_dir: str, date: str, match_id: str) -> dict:
         token_to_team[token_id] = manifest["outcomes"][i]
 
     # Load trades
-    trades_path = base / f"{match_id}_trades.json"
-    with open(trades_path) as f:
-        trades_data = json.load(f)
+    trades_path = base / f"{match_id}_trades.json.gz"
+    trades_data = _read_json(trades_path)
 
     trades_list = trades_data["trades"]
     trades_meta = {k: v for k, v in trades_data.items() if k != "trades"}
@@ -69,12 +88,11 @@ def load_game(data_dir: str, date: str, match_id: str) -> dict:
     gamma_closed = _parse_iso(manifest.get("gamma_closed_time"))
 
     # Load events if file exists
-    events_path = base / f"{match_id}_events.json"
+    events_path = base / f"{match_id}_events.json.gz"
     events = None
     tricode_map = {}
     if events_path.exists():
-        with open(events_path) as f:
-            events_data = json.load(f)
+        events_data = _read_json(events_path)
         events = events_data.get("events", [])
 
         # Parse time_actual on each event
@@ -93,6 +111,50 @@ def load_game(data_dir: str, date: str, match_id: str) -> dict:
         "gamma_start": gamma_start,
         "gamma_closed": gamma_closed,
     }
+
+
+def load_manifest_index(data_dir: str = "data") -> pd.DataFrame:
+    """Load a lightweight collected-game index from manifest metadata."""
+    return _load_manifest_index_cached(str(Path(data_dir).resolve()))
+
+
+@lru_cache(maxsize=4)
+def _load_manifest_index_cached(data_dir: str) -> pd.DataFrame:
+    rows: list[dict] = []
+    base = Path(data_dir)
+    if not base.is_dir():
+        return pd.DataFrame()
+
+    for date_dir in sorted(base.iterdir(), reverse=True):
+        if not date_dir.is_dir() or not _is_date_dir(date_dir.name):
+            continue
+        manifest_path = date_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        with open(manifest_path) as f:
+            entries = json.load(f)
+        for entry in entries:
+            if entry.get("status") != "collected":
+                continue
+            rows.append(
+                {
+                    "date": date_dir.name,
+                    "sport": entry.get("sport"),
+                    "match_id": entry.get("match_id"),
+                    "label": f"{entry.get('away_team')} @ {entry.get('home_team')}",
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "sport", "match_id", "label"])
+    return pd.DataFrame(rows)
+
+
+def _read_json(path: Path) -> dict:
+    """Read a JSON file, auto-detecting gzip by .gz suffix."""
+    opener = gzip.open if path.name.endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def _build_tricode_map(events: list[dict], manifest: dict) -> dict:

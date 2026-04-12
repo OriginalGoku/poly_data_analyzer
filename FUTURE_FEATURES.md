@@ -20,6 +20,10 @@ Approximate spread from BUY vs SELL trade prices within time windows. Current da
 **Date:** 09/04/2026
 Dedicated view or summary statistics for how the market moved between market open and tip-off, using `price_checkpoints` data.
 
+### Sensitivity cache invalidation
+**Date:** 11/04/2026
+Include a settings hash in the sensitivity cache filename so changes to window size or lead-bin thresholds automatically invalidate stale per-game sensitivity rows.
+
 ## Low
 
 ### Data quality filtering controls

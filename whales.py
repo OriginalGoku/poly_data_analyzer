@@ -3,6 +3,21 @@
 import pandas as pd
 
 
+def _trade_size_stats(trades_df: pd.DataFrame) -> dict:
+    """Return trade-size summary stats for a wallet's trade subset."""
+    if trades_df.empty:
+        return {"count": 0, "min": 0, "max": 0, "mean": 0, "median": 0}
+
+    sizes = trades_df["size"]
+    return {
+        "count": int(len(sizes)),
+        "min": float(sizes.min()),
+        "max": float(sizes.max()),
+        "mean": float(sizes.mean()),
+        "median": float(sizes.median()),
+    }
+
+
 def analyze_whales(trades_df: pd.DataFrame, settings: dict | None = None) -> dict:
     """Identify and classify whale wallets from trade data.
 
@@ -34,6 +49,8 @@ def analyze_whales(trades_df: pd.DataFrame, settings: dict | None = None) -> dic
         taker_volume = taker_trades["size"].sum()
         total_vol = maker_volume + taker_volume
         trade_count = len(maker_trades) + len(taker_trades)
+        maker_trade_stats = _trade_size_stats(maker_trades)
+        taker_trade_stats = _trade_size_stats(taker_trades)
 
         pct_of_total = total_vol / total_volume * 100 if total_volume > 0 else 0
 
@@ -41,6 +58,29 @@ def analyze_whales(trades_df: pd.DataFrame, settings: dict | None = None) -> dic
         buy_volume = taker_trades[taker_trades["side"] == "BUY"]["size"].sum()
         sell_volume = taker_trades[taker_trades["side"] == "SELL"]["size"].sum()
         teams_traded = set(taker_trades["team"].dropna().unique())
+
+        # Per-team position breakdown (taker trades only)
+        positions = []
+        for team in sorted(teams_traded):
+            team_taker = taker_trades[taker_trades["team"] == team]
+            t_buy = team_taker[team_taker["side"] == "BUY"]["size"].sum()
+            t_sell = team_taker[team_taker["side"] == "SELL"]["size"].sum()
+            t_total = t_buy + t_sell
+            if t_total > 0:
+                if t_buy / t_total > 0.65:
+                    net_side = "BUY"
+                elif t_sell / t_total > 0.65:
+                    net_side = "SELL"
+                else:
+                    net_side = "Mixed"
+            else:
+                net_side = "N/A"
+            positions.append({
+                "team": team,
+                "buy_volume": t_buy,
+                "sell_volume": t_sell,
+                "net_side": net_side,
+            })
 
         # Primary side (taker trades only)
         taker_total = buy_volume + sell_volume
@@ -77,11 +117,14 @@ def analyze_whales(trades_df: pd.DataFrame, settings: dict | None = None) -> dic
             "buy_volume": buy_volume,
             "sell_volume": sell_volume,
             "teams_traded": teams_traded,
+            "positions": positions,
             "pct_of_total": pct_of_total,
             "primary_side": primary_side,
             "classification": classification,
             "maker_pct": maker_pct,
             "taker_pct": taker_pct,
+            "maker_trade_stats": maker_trade_stats,
+            "taker_trade_stats": taker_trade_stats,
         })
 
     # Filter by min pct, sort by total volume, cap at max count

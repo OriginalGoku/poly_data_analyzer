@@ -112,12 +112,97 @@ class TestSideAttribution:
         assert mkr["primary_side"] == "N/A"
 
 
+class TestPositions:
+    def test_per_team_breakdown(self):
+        trades = _make_trades([
+            ("0xMKR1", "0xTKR1", "BUY", 800, "Lakers"),
+            ("0xMKR1", "0xTKR1", "SELL", 300, "Celtics"),
+        ])
+        result = analyze_whales(trades, {"whale_min_volume_pct": 1.0})
+        tkr = next(w for w in result["whales"] if w["address"] == "0xTKR1")
+        assert len(tkr["positions"]) == 2
+        lakers = next(p for p in tkr["positions"] if p["team"] == "Lakers")
+        celtics = next(p for p in tkr["positions"] if p["team"] == "Celtics")
+        assert lakers["net_side"] == "BUY"
+        assert lakers["buy_volume"] == 800
+        assert celtics["net_side"] == "SELL"
+        assert celtics["sell_volume"] == 300
+
+    def test_maker_only_has_no_positions(self):
+        trades = _make_trades([
+            ("0xMKR1", "0xTKR1", "BUY", 500, "Lakers"),
+        ] + [
+            ("0xMKR1", f"0xT{i:04d}", "BUY", 10, "Lakers")
+            for i in range(20)
+        ])
+        result = analyze_whales(trades, {"whale_min_volume_pct": 1.0})
+        mkr = next(w for w in result["whales"] if w["address"] == "0xMKR1")
+        assert mkr["positions"] == []
+
+    def test_mixed_side_position(self):
+        trades = _make_trades([
+            ("0xMKR1", "0xTKR1", "BUY", 500, "Lakers"),
+            ("0xMKR1", "0xTKR1", "SELL", 500, "Lakers"),
+        ])
+        result = analyze_whales(trades, {"whale_min_volume_pct": 1.0})
+        tkr = next(w for w in result["whales"] if w["address"] == "0xTKR1")
+        assert tkr["positions"][0]["net_side"] == "Mixed"
+
+
+class TestSummary:
+    def test_summary_fields(self, sample_trades):
+        result = analyze_whales(sample_trades, {"whale_min_volume_pct": 1.0})
+        s = result["summary"]
+        assert s["whale_count"] == len(result["whales"])
+        assert s["whale_volume"] > 0
+        assert s["total_volume"] == sample_trades["size"].sum()
+        assert s["whale_pct"] > 0
+
+    def test_whale_pct_is_ratio_of_whale_to_total(self, sample_trades):
+        result = analyze_whales(sample_trades, {"whale_min_volume_pct": 1.0})
+        s = result["summary"]
+        expected_pct = s["whale_volume"] / s["total_volume"] * 100
+        assert abs(s["whale_pct"] - expected_pct) < 0.01
+
+
+class TestTradeSizeStats:
+    def test_tracks_maker_and_taker_trade_size_stats(self):
+        trades = _make_trades([
+            ("0xSTAT", "0xA", "BUY", 100, "Lakers"),
+            ("0xSTAT", "0xB", "BUY", 300, "Lakers"),
+            ("0xM1", "0xSTAT", "SELL", 200, "Lakers"),
+            ("0xM2", "0xSTAT", "BUY", 400, "Celtics"),
+        ])
+        result = analyze_whales(trades, {"whale_min_volume_pct": 0.0})
+        whale = next(w for w in result["whales"] if w["address"] == "0xSTAT")
+
+        assert whale["maker_trade_stats"] == {
+            "count": 2, "min": 100.0, "max": 300.0, "mean": 200.0, "median": 200.0,
+        }
+        assert whale["taker_trade_stats"] == {
+            "count": 2, "min": 200.0, "max": 400.0, "mean": 300.0, "median": 300.0,
+        }
+
+
+class TestDisplayAddr:
+    def test_format(self):
+        trades = _make_trades([
+            ("0xabcd1234efgh5678", "0xOTHER01", "BUY", 1000, "Lakers"),
+        ])
+        result = analyze_whales(trades, {"whale_min_volume_pct": 0.0})
+        whale = next(w for w in result["whales"] if w["address"] == "0xabcd1234efgh5678")
+        assert whale["display_addr"] == "0xabcd...5678"
+
+
 class TestEmptyDataFrame:
     def test_empty_df(self):
         df = pd.DataFrame(columns=["maker", "taker", "side", "size", "team"])
         result = analyze_whales(df)
         assert result["whales"] == []
         assert result["summary"]["whale_count"] == 0
+        assert result["summary"]["whale_volume"] == 0
+        assert result["summary"]["whale_pct"] == 0
+        assert result["summary"]["total_volume"] == 0
 
 
 class TestGetWhaleTrades:
