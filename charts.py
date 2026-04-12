@@ -286,6 +286,8 @@ def build_sensitivity_timeline(
 
     away_team = manifest["outcomes"][0]
     home_team = manifest["outcomes"][1]
+    away_label = f"{away_team} (Away)"
+    home_label = f"{home_team} (Home)"
     team_colors = {away_team: "#1f77b4", home_team: "#ff7f0e"}
     point_sizes = {1: 6, 2: 10, 3: 14}
     window_estimate = max(
@@ -294,7 +296,7 @@ def build_sensitivity_timeline(
     )
 
     fig = go.Figure()
-    for team in [away_team, home_team]:
+    for team, label in [(away_team, away_label), (home_team, home_label)]:
         team_df = plotted[plotted["team"] == team]
         if team_df.empty:
             continue
@@ -310,7 +312,7 @@ def build_sensitivity_timeline(
                 x=team_df["event_time"],
                 y=team_df["delta_price"],
                 mode="markers",
-                name=team,
+                name=label,
                 marker=dict(
                     color=team_colors.get(team, "#888"),
                     size=[point_sizes.get(points, 8) for points in team_df["points"]],
@@ -325,15 +327,18 @@ def build_sensitivity_timeline(
                         "post_lead",
                         "trades_before_count",
                         "trades_after_count",
+                        "pre_leader",
+                        "post_leader",
                     ]
                 ].values,
                 hovertemplate=(
                     "%{x}<br>"
-                    "Team: " + team + "<br>"
+                    "Team: " + label + "<br>"
                     "Points: %{customdata[0]}<br>"
                     "Period: %{customdata[1]}<br>"
-                    "Lead: %{customdata[2]} → %{customdata[3]}<br>"
-                    "ΔPrice: %{y:+.3f}<br>"
+                    "Score gap: %{customdata[2]} → %{customdata[3]}<br>"
+                    "Leader: %{customdata[6]} → %{customdata[7]}<br>"
+                    "ΔPrice: %{y:+.4g}<br>"
                     "Trades used: %{customdata[4]} before / %{customdata[5]} after"
                     "<extra></extra>"
                 ),
@@ -359,7 +364,7 @@ def build_sensitivity_surface(
     sensitivity_df: pd.DataFrame | None,
     manifest: dict,
     settings,
-    title: str = "Sensitivity by Game Phase & Lead",
+    title: str = "Sensitivity by Game Phase & Score Gap",
 ) -> go.Figure:
     """Build quarter- and time-bucketed sensitivity summary bars."""
     if sensitivity_df is None or sensitivity_df.empty:
@@ -408,7 +413,7 @@ def build_sensitivity_surface(
                 customdata=subset[["event_count", "median_delta"]].values,
                 hovertemplate=(
                     "%{x}<br>"
-                    f"Lead Bin: {lead_bin}<br>"
+                    f"Score Gap Bin: {lead_bin}<br>"
                     "Mean |ΔPrice|: %{y:.3f}<br>"
                     "Events: %{customdata[0]}<br>"
                     "Median ΔPrice: %{customdata[1]:+.3f}"
@@ -438,7 +443,7 @@ def build_sensitivity_surface(
                 customdata=subset[["event_count", "median_delta"]].values,
                 hovertemplate=(
                     "%{x}<br>"
-                    f"Lead Bin: {lead_bin}<br>"
+                    f"Score Gap Bin: {lead_bin}<br>"
                     "Mean |ΔPrice|: %{y:.3f}<br>"
                     "Events: %{customdata[0]}<br>"
                     "Median ΔPrice: %{customdata[1]:+.3f}"

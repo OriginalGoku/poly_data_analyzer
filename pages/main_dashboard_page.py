@@ -161,7 +161,7 @@ class MainDashboardPage:
                 dcc.Loading(dcc.Graph(id="score-diff-chart", style={"height": "280px"})),
                 html.H3("Price Sensitivity to Scoring", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="sensitivity-timeline", style={"height": "360px"})),
-                html.H3("Sensitivity by Game Phase & Lead", style={"marginTop": "20px", "marginBottom": "5px"}),
+                html.H3("Sensitivity by Game Phase & Score Gap", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="sensitivity-surface", style={"height": "520px"})),
                 html.H3("In-Game", style={"marginTop": "20px", "marginBottom": "5px"}),
                 dcc.Loading(dcc.Graph(id="game-chart", style={"height": "700px"})),

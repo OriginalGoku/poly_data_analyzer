@@ -236,6 +236,8 @@ class TestSensitivityCache:
     "seconds_since_tipoff": 60,
     "pre_lead": 0,
     "post_lead": 2,
+    "pre_leader": "Tied",
+    "post_leader": "Away (Away)",
     "lead_bin": "Close",
     "time_bin": 0,
     "price_before": 0.4,
@@ -252,6 +254,8 @@ class TestSensitivityCache:
     "seconds_since_tipoff": 120,
     "pre_lead": 2,
     "post_lead": 1,
+    "pre_leader": "Away (Away)",
+    "post_leader": "Away (Away)",
     "lead_bin": "Close",
     "time_bin": 0,
     "price_before": 0.45,
@@ -276,6 +280,59 @@ class TestSensitivityCache:
         assert df is not None
         assert len(df) == 2
         assert str(df["event_time"].dtype).startswith("datetime64[ns, UTC]")
+
+    def test_legacy_cache_without_leader_columns_recomputes(self, tmp_path):
+        base = _base_time()
+        cache_path = tmp_path / "cache" / "2025-01-01" / "match-4_sensitivity.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            """[
+  {
+    "event_time": "2026-04-09T23:50:09+00:00",
+    "team": "Away",
+    "points": 2,
+    "period": 1,
+    "seconds_since_tipoff": 60,
+    "pre_lead": 0,
+    "post_lead": 2,
+    "lead_bin": "Close",
+    "time_bin": 0,
+    "price_before": 0.4,
+    "price_after": 0.45,
+    "delta_price": 0.05,
+    "trades_before_count": 5,
+    "trades_after_count": 5
+  }
+]"""
+        )
+        trades = _trade_rows(
+            base,
+            [
+                (10, "away-token", 0.40, 10),
+                (20, "away-token", 0.40, 10),
+                (70, "away-token", 0.50, 10),
+                (80, "away-token", 0.50, 10),
+            ],
+        )
+        events = [
+            {"time_actual_dt": base, "away_score": 0, "home_score": 0, "event_type": "start", "period": 1},
+            {"time_actual_dt": base + timedelta(seconds=60), "away_score": 2, "home_score": 0, "event_type": "2pt", "period": 1},
+        ]
+
+        df = load_or_compute_sensitivity(
+            tmp_path / "cache",
+            "2025-01-01",
+            "match-4",
+            trades,
+            events,
+            _manifest(),
+            _settings(),
+        )
+
+        assert df is not None
+        assert {"pre_leader", "post_leader"}.issubset(df.columns)
+        assert df.iloc[0]["pre_leader"] == "Tied"
+        assert df.iloc[0]["post_leader"] == "Away (Away)"
 
 
 class TestSensitivityCharts:
@@ -303,7 +360,7 @@ class TestSensitivityCharts:
         fig = build_sensitivity_timeline(sensitivity_df, _manifest(), _basic_events(base))
 
         assert len(fig.data) == 2
-        assert {trace.name for trace in fig.data} == {"Away", "Home"}
+        assert {trace.name for trace in fig.data} == {"Away (Away)", "Home (Home)"}
 
     def test_surface_subplot_structure(self):
         base = _base_time()

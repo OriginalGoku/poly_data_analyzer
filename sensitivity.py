@@ -87,6 +87,8 @@ def compute_event_sensitivity(
                 "seconds_since_tipoff": seconds_since_tipoff,
                 "pre_lead": pre_lead,
                 "post_lead": post_lead,
+                "pre_leader": _score_leader_label(prev_away, prev_home, away_team, home_team),
+                "post_leader": _score_leader_label(away_score, home_score, away_team, home_team),
                 "lead_bin": _classify_lead_bin(pre_lead, settings),
                 "time_bin": seconds_since_tipoff // 360,
                 "price_before": price_before,
@@ -125,9 +127,10 @@ def load_or_compute_sensitivity(
         if not payload:
             return None
         df = pd.DataFrame(payload)
-        # Existing cache files may mix ISO timestamps with and without fractional seconds.
-        df["event_time"] = pd.to_datetime(df["event_time"], utc=True, format="mixed")
-        return df
+        if _cache_has_required_columns(df):
+            # Existing cache files may mix ISO timestamps with and without fractional seconds.
+            df["event_time"] = pd.to_datetime(df["event_time"], utc=True, format="mixed")
+            return df
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     sensitivity_df = compute_event_sensitivity(trades_df, events, manifest, settings)
@@ -156,8 +159,40 @@ def _classify_lead_bin(pre_lead: int, settings) -> str:
     return "Blowout"
 
 
+def _score_leader_label(away_score: int, home_score: int, away_team: str, home_team: str) -> str:
+    """Return the leading team label, or tied, from score state."""
+    if away_score > home_score:
+        return f"{away_team} (Away)"
+    if home_score > away_score:
+        return f"{home_team} (Home)"
+    return "Tied"
+
+
 def _serialize_rows(df: pd.DataFrame) -> list[dict]:
     records = df.to_dict("records")
     for record in records:
         record["event_time"] = pd.Timestamp(record["event_time"]).isoformat()
     return records
+
+
+def _cache_has_required_columns(df: pd.DataFrame) -> bool:
+    """Return True when cached sensitivity rows match the current schema."""
+    required = {
+        "event_time",
+        "team",
+        "points",
+        "period",
+        "seconds_since_tipoff",
+        "pre_lead",
+        "post_lead",
+        "pre_leader",
+        "post_leader",
+        "lead_bin",
+        "time_bin",
+        "price_before",
+        "price_after",
+        "delta_price",
+        "trades_before_count",
+        "trades_after_count",
+    }
+    return required.issubset(df.columns)
