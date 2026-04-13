@@ -1,4 +1,5 @@
 """Backtest grid runner and results aggregation."""
+import logging
 from datetime import datetime
 from typing import List, Tuple
 
@@ -8,6 +9,8 @@ from tqdm import tqdm
 from backtest.backtest_config import DipBuyBacktestConfig
 from backtest.backtest_single_game import backtest_single_game
 from backtest.backtest_universe import filter_upper_strong_universe
+
+logger = logging.getLogger(__name__)
 
 
 def run_backtest_grid(
@@ -69,10 +72,25 @@ def run_backtest_grid(
 
     per_game_df = pd.DataFrame(all_results) if all_results else pd.DataFrame()
 
+    # Log entry statistics
+    if not per_game_df.empty:
+        logger.info(f"Universe: {len(per_game_df)} game results generated")
+        status_counts = per_game_df["status"].value_counts().to_dict()
+        logger.info(f"Status breakdown: {status_counts}")
+
+        games_with_entry = (per_game_df["entry_price"].notna()).sum()
+        logger.info(f"Games with dip entry triggered: {games_with_entry}/{len(per_game_df)}")
+
+        if games_with_entry > 0:
+            entry_trades = per_game_df[per_game_df["entry_price"].notna()]
+            logger.info(f"  Entry ROI range: {entry_trades['roi_pct'].min():.2%} to {entry_trades['roi_pct'].max():.2%}")
+            logger.info(f"  Entry ROI mean: {entry_trades['roi_pct'].mean():.2%}")
+
     # Aggregate by strategy
     aggregated = []
     if per_game_df.empty:
         # Return empty aggregated results if no games were tested
+        logger.warning("No games tested - per_game_df is empty")
         return pd.DataFrame(), per_game_df
 
     configs_iter = tqdm(

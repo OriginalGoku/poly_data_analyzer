@@ -1,10 +1,13 @@
 """Single-game backtest execution engine."""
+import logging
 from datetime import datetime
 from typing import Dict, Optional
 
 import pandas as pd
 
 from analytics import get_analytics_view
+
+logger = logging.getLogger(__name__)
 from backtest.backtest_baselines import (
     baseline_buy_at_open,
     baseline_buy_at_tipoff,
@@ -114,6 +117,19 @@ def backtest_single_game(
 
     # Find dip entry
     dip_threshold = config.dip_thresholds[0]  # Use first threshold in config
+
+    # Debug logging
+    in_game_trades = trades_df[
+        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+    ]
+    if len(in_game_trades) > 0:
+        min_price = in_game_trades["price"].min()
+        dip_level = open_price - (dip_threshold / 100.0)
+        logger.debug(
+            f"{match_id}: open={open_price:.4f}, dip_level={dip_level:.4f}, "
+            f"min_trade_price={min_price:.4f}, trades={len(in_game_trades)}"
+        )
+
     entry_result = find_dip_entry(
         trades_df=trades_df,
         open_price=open_price,

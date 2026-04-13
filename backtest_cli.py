@@ -1,12 +1,25 @@
 """CLI entry point for backtest execution."""
 import argparse
+import logging
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from tqdm import tqdm
 
 from backtest.backtest_config import DipBuyBacktestConfig
 from backtest.backtest_export import export_backtest_results
 from backtest.backtest_runner import run_backtest_grid
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -54,10 +67,17 @@ def main():
             )
             configs.append(config)
 
-    print(f"Running backtest from {args.start_date} to {args.end_date}")
-    print(f"Configs: {len(configs)}")
+    logger.info(f"Running backtest from {args.start_date} to {args.end_date}")
+    logger.info(f"Configs: {len(configs)} (exits: {set(c.exit_type for c in configs)}, fees: {set(c.fee_model for c in configs)})")
+    logger.info(f"Data directory: {args.data_dir}")
+
+    # Create dated subfolder for results
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path(args.output) / timestamp
+    logger.info(f"Results will be saved to: {output_dir}/")
 
     # Run grid with progress bar
+    logger.info("Loading universe and running backtests...")
     agg_df, per_game_df = run_backtest_grid(
         start_date=start_date,
         end_date=end_date,
@@ -66,16 +86,27 @@ def main():
         verbose=True,
     )
 
-    print(f"\n✓ Completed {len(per_game_df)} games")
+    logger.info(f"\n✓ Completed {len(per_game_df)} games")
+
+    # Log summary stats
+    if not per_game_df.empty:
+        games_with_entry = (per_game_df["entry_price"].notna()).sum()
+        games_settled = (per_game_df["settlement_occurred"] == True).sum()
+        logger.info(f"  Games with dip entry triggered: {games_with_entry}")
+        logger.info(f"  Games with settlement: {games_settled}")
+        if games_with_entry > 0:
+            logger.info(f"  Mean ROI (with entry): {per_game_df[per_game_df['entry_price'].notna()]['roi_pct'].mean():.2%}")
+
+    logger.info(f"Aggregated results: {len(agg_df)} strategy combinations tested")
 
     # Export
     export_backtest_results(
         aggregated_df=agg_df,
         per_game_df=per_game_df,
-        output_dir=args.output,
+        output_dir=str(output_dir),
     )
 
-    print(f"Results exported to {args.output}/")
+    logger.info(f"Results exported to {output_dir}/")
 
 
 if __name__ == "__main__":
