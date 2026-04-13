@@ -3,8 +3,8 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from backtest_pnl import compute_trade_pnl
-from backtest_settlement import resolve_settlement
+from backtest.backtest_pnl import compute_trade_pnl
+from backtest.backtest_settlement import resolve_settlement
 
 
 def baseline_buy_at_open(

@@ -5,9 +5,9 @@ from typing import List, Tuple
 import pandas as pd
 from tqdm import tqdm
 
-from backtest_config import DipBuyBacktestConfig
-from backtest_single_game import backtest_single_game
-from backtest_universe import filter_upper_strong_universe
+from backtest.backtest_config import DipBuyBacktestConfig
+from backtest.backtest_single_game import backtest_single_game
+from backtest.backtest_universe import filter_upper_strong_universe
 
 
 def run_backtest_grid(

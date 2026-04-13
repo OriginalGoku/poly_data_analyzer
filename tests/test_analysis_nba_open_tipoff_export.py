@@ -32,8 +32,13 @@ def test_write_summary_file_includes_outcome_metrics(tmp_path):
         tipoff_prediction_games=7,
         open_to_tipoff_swing_rate=0.25,
         any_pregame_switch_rate=0.4,
+        open_to_game_end_switch_rate=0.35,
+        any_in_game_switch_rate=0.55,
         open_favorite_win_rate=0.625,
         tipoff_favorite_win_rate=0.7142857,
+        mean_open_favorite_in_game_min_price=0.41,
+        mean_open_favorite_max_adverse_excursion=0.14,
+        mean_open_favorite_max_adverse_excursion_pct=0.22,
         mean_abs_move=0.08,
         mean_path_volatility=0.04,
     )
@@ -46,6 +51,9 @@ def test_write_summary_file_includes_outcome_metrics(tmp_path):
     assert "Games with tip-off prediction" in content
     assert "Open favorite win rate" in content
     assert "Tip-off favorite win rate" in content
+    assert "Open-to-game-end switch rate" in content
+    assert "Any in-game favorite switch" in content
+    assert "Mean open-favorite max adverse excursion %" in content
 
 
 def test_main_writes_outcome_exports(tmp_path, monkeypatch):

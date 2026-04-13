@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from backtest_settlement import resolve_settlement
+from backtest.backtest_settlement import resolve_settlement
 
 
 @pytest.fixture

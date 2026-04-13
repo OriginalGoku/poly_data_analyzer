@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from backtest_config import DipBuyBacktestConfig
-from backtest_runner import run_backtest_grid
+from backtest.backtest_config import DipBuyBacktestConfig
+from backtest.backtest_runner import run_backtest_grid
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def test_run_backtest_grid_empty_universe():
     """Test backtest grid with empty universe."""
     config = DipBuyBacktestConfig(dip_thresholds=(10,))
 
-    with patch("backtest_runner.filter_upper_strong_universe") as mock_universe:
+    with patch("backtest.backtest_runner.filter_upper_strong_universe") as mock_universe:
         mock_universe.return_value = []
 
         agg_df, per_game_df = run_backtest_grid(
@@ -62,8 +62,8 @@ def test_run_backtest_grid_basic(mock_universe):
         "status": "filled",
     }
 
-    with patch("backtest_runner.filter_upper_strong_universe") as mock_univ, \
-         patch("backtest_runner.backtest_single_game") as mock_backtest:
+    with patch("backtest.backtest_runner.filter_upper_strong_universe") as mock_univ, \
+         patch("backtest.backtest_runner.backtest_single_game") as mock_backtest:
         mock_univ.return_value = mock_universe
         mock_backtest.return_value = mock_result
 
@@ -83,7 +83,7 @@ def test_run_backtest_grid_sport_filter(mock_universe):
     """Test sport filter in grid."""
     config = DipBuyBacktestConfig(sport_filter="mlb")
 
-    with patch("backtest_runner.filter_upper_strong_universe") as mock_univ:
+    with patch("backtest.backtest_runner.filter_upper_strong_universe") as mock_univ:
         mock_univ.return_value = mock_universe  # All NBA games
 
         agg_df, per_game_df = run_backtest_grid(
@@ -122,8 +122,8 @@ def test_run_backtest_grid_multiple_configs(mock_universe):
         "status": "filled",
     }
 
-    with patch("backtest_runner.filter_upper_strong_universe") as mock_univ, \
-         patch("backtest_runner.backtest_single_game") as mock_backtest:
+    with patch("backtest.backtest_runner.filter_upper_strong_universe") as mock_univ, \
+         patch("backtest.backtest_runner.backtest_single_game") as mock_backtest:
         mock_univ.return_value = mock_universe
         mock_backtest.return_value = mock_result
 

@@ -1,7 +1,7 @@
 """Tests for backtest configuration."""
 import pytest
 
-from backtest_config import DipBuyBacktestConfig
+from backtest.backtest_config import DipBuyBacktestConfig
 
 
 def test_config_default():

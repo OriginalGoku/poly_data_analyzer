@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from backtest_config import DipBuyBacktestConfig
-from backtest_single_game import backtest_single_game
+from backtest.backtest_config import DipBuyBacktestConfig
+from backtest.backtest_single_game import backtest_single_game
 
 
 @pytest.fixture
@@ -77,8 +77,8 @@ def test_backtest_single_game_basic(mock_game_data, mock_analytics_view):
     """Test basic single-game backtest."""
     config = DipBuyBacktestConfig(dip_thresholds=(10,), exit_type="settlement")
 
-    with patch("backtest_single_game.load_game") as mock_load_game, \
-         patch("backtest_single_game.get_analytics_view") as mock_analytics:
+    with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+         patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
         mock_load_game.return_value = mock_game_data
         mock_analytics.return_value = mock_analytics_view
 
@@ -101,8 +101,8 @@ def test_backtest_single_game_no_dip_triggered(mock_game_data, mock_analytics_vi
     """Test game where dip threshold is never triggered."""
     config = DipBuyBacktestConfig(dip_thresholds=(50,), exit_type="settlement")
 
-    with patch("backtest_single_game.load_game") as mock_load_game, \
-         patch("backtest_single_game.get_analytics_view") as mock_analytics:
+    with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+         patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
         mock_load_game.return_value = mock_game_data
         mock_analytics.return_value = mock_analytics_view
 
@@ -122,7 +122,7 @@ def test_backtest_single_game_load_failure(mock_analytics_view):
     """Test game where loading fails."""
     config = DipBuyBacktestConfig()
 
-    with patch("backtest_single_game.load_game") as mock_load_game:
+    with patch("backtest.backtest_single_game.load_game") as mock_load_game:
         mock_load_game.side_effect = Exception("Load error")
 
         result = backtest_single_game(
@@ -142,8 +142,8 @@ def test_backtest_single_game_missing_analytics(mock_game_data):
 
     empty_analytics = pd.DataFrame({"match_id": [], "date": []})
 
-    with patch("backtest_single_game.load_game") as mock_load_game, \
-         patch("backtest_single_game.get_analytics_view") as mock_analytics:
+    with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+         patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
         mock_load_game.return_value = mock_game_data
         mock_analytics.return_value = empty_analytics
 
@@ -164,8 +164,8 @@ def test_backtest_single_game_different_exit_types(mock_game_data, mock_analytic
             dip_thresholds=(10,), exit_type=exit_type
         )
 
-        with patch("backtest_single_game.load_game") as mock_load_game, \
-             patch("backtest_single_game.get_analytics_view") as mock_analytics:
+        with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+             patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
             mock_load_game.return_value = mock_game_data
             mock_analytics.return_value = mock_analytics_view
 
@@ -184,8 +184,8 @@ def test_backtest_single_game_fee_models(mock_game_data, mock_analytics_view):
     for fee_model in ["taker", "maker"]:
         config = DipBuyBacktestConfig(fee_model=fee_model)
 
-        with patch("backtest_single_game.load_game") as mock_load_game, \
-             patch("backtest_single_game.get_analytics_view") as mock_analytics:
+        with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+             patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
             mock_load_game.return_value = mock_game_data
             mock_analytics.return_value = mock_analytics_view
 
@@ -203,8 +203,8 @@ def test_backtest_includes_baselines(mock_game_data, mock_analytics_view):
     """Test that baselines are included in results."""
     config = DipBuyBacktestConfig()
 
-    with patch("backtest_single_game.load_game") as mock_load_game, \
-         patch("backtest_single_game.get_analytics_view") as mock_analytics:
+    with patch("backtest.backtest_single_game.load_game") as mock_load_game, \
+         patch("backtest.backtest_single_game.get_analytics_view") as mock_analytics:
         mock_load_game.return_value = mock_game_data
         mock_analytics.return_value = mock_analytics_view
 

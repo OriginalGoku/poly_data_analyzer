@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -302,3 +303,106 @@ def test_summary_and_grouped_outcome_metrics_handle_missing_coverage(tmp_path):
         "open_prediction_games",
         "tipoff_prediction_games",
     }
+
+
+def test_service_computes_in_game_switch_and_open_favorite_excursion_metrics(tmp_path):
+    date_dir = tmp_path / "2026-04-10"
+    manifest = {
+        "match_id": "nba-ingame-path",
+        "sport": "nba",
+        "status": "collected",
+        "away_team": "Away",
+        "home_team": "Home",
+        "outcomes": ["Away", "Home"],
+        "token_ids": ["a1", "h1"],
+    }
+    tipoff = pd.Timestamp("2026-04-10T19:00:00Z")
+    _write_manifest(date_dir / "manifest.json", [manifest])
+    _write_json_gz(
+        date_dir / "nba-ingame-path_trades.json.gz",
+        {
+            "match_id": manifest["match_id"],
+            "sport": "nba",
+            "price_checkpoints_meta": {"price_quality": "exact"},
+            "price_checkpoints": {
+                "a1": {
+                    "selected_early_price": 0.35,
+                    "selected_early_price_source": "clob_open",
+                    "last_pregame_trade_price": 0.45,
+                },
+                "h1": {
+                    "selected_early_price": 0.65,
+                    "selected_early_price_source": "clob_open",
+                    "last_pregame_trade_price": 0.55,
+                },
+            },
+            "trades": [
+                {
+                    "timestamp": int((tipoff - pd.Timedelta(minutes=20)).timestamp()),
+                    "asset": "a1",
+                    "price": 0.35,
+                    "size": 3000,
+                },
+                {
+                    "timestamp": int((tipoff - pd.Timedelta(minutes=10)).timestamp()),
+                    "asset": "h1",
+                    "price": 0.65,
+                    "size": 3000,
+                },
+                {
+                    "timestamp": int((tipoff + pd.Timedelta(minutes=1)).timestamp()),
+                    "asset": "a1",
+                    "price": 0.40,
+                    "size": 1200,
+                },
+                {
+                    "timestamp": int((tipoff + pd.Timedelta(minutes=6)).timestamp()),
+                    "asset": "a1",
+                    "price": 0.65,
+                    "size": 1200,
+                },
+                {
+                    "timestamp": int((tipoff + pd.Timedelta(minutes=12)).timestamp()),
+                    "asset": "a1",
+                    "price": 0.58,
+                    "size": 1200,
+                },
+            ],
+        },
+    )
+    _write_json_gz(
+        date_dir / "nba-ingame-path_events.json.gz",
+        {
+            "events": [
+                {"time_actual": "2026-04-10T19:00:00Z", "away_score": 0, "home_score": 0},
+                {"time_actual": "2026-04-10T21:00:00Z", "away_score": 103, "home_score": 100},
+            ]
+        },
+    )
+
+    service = NBAOpenTipoffAnalysisService(str(tmp_path), ChartSettings(pregame_min_cum_vol=0))
+    dataset = service.load_dataset(AnalysisFilters())
+
+    assert len(dataset) == 1
+    row = dataset.iloc[0]
+    assert row["last_in_game_favorite_team"] == "Away"
+    assert bool(row["favorite_changed_open_to_game_end"]) is True
+    assert bool(row["any_favorite_switch_ingame"]) is True
+    assert row["favorite_switch_count_ingame"] == 1
+    assert row["open_favorite_in_game_min_price"] == pytest.approx(0.35)
+    assert row["open_favorite_in_game_max_price"] == pytest.approx(0.60)
+    assert row["open_favorite_max_adverse_excursion"] == pytest.approx(0.30)
+    assert row["open_favorite_max_adverse_excursion_pct"] == pytest.approx(0.30 / 0.65)
+
+    summary = service.build_summary(dataset)
+    assert summary.open_to_game_end_switch_rate == pytest.approx(1.0)
+    assert summary.any_in_game_switch_rate == pytest.approx(1.0)
+    assert summary.mean_open_favorite_in_game_min_price == pytest.approx(0.35)
+    assert summary.mean_open_favorite_max_adverse_excursion_pct == pytest.approx(0.30 / 0.65)
+
+    grouped = service.build_group_summary(dataset, "open_interpretable_band")
+    first_group = grouped.iloc[0]
+    assert first_group["open_to_game_end_switch_rate"] == pytest.approx(1.0)
+    assert first_group["any_in_game_switch_rate"] == pytest.approx(1.0)
+    assert first_group["mean_open_favorite_in_game_min_price"] == pytest.approx(0.35)
+    assert first_group["mean_open_favorite_max_adverse_excursion_pct"] == pytest.approx(0.30 / 0.65)

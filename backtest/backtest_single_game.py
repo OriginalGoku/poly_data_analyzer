@@ -5,15 +5,15 @@ from typing import Dict, Optional
 import pandas as pd
 
 from analytics import get_analytics_view
-from backtest_baselines import (
+from backtest.backtest_baselines import (
     baseline_buy_at_open,
     baseline_buy_at_tipoff,
     baseline_buy_first_ingame,
 )
-from backtest_config import DipBuyBacktestConfig
-from backtest_pnl import compute_trade_pnl
-from backtest_settlement import resolve_settlement
-from dip_entry_detection import find_dip_entry, find_exit
+from backtest.backtest_config import DipBuyBacktestConfig
+from backtest.backtest_pnl import compute_trade_pnl
+from backtest.backtest_settlement import resolve_settlement
+from backtest.dip_entry_detection import find_dip_entry, find_exit
 from loaders import load_game
 
 

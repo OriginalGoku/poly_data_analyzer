@@ -1,7 +1,7 @@
 """Tests for PnL computation."""
 import pytest
 
-from backtest_pnl import compute_trade_pnl
+from backtest.backtest_pnl import compute_trade_pnl
 
 
 def test_compute_pnl_profitable_with_taker_fee():

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from backtest_universe import filter_upper_strong_universe
+from backtest.backtest_universe import filter_upper_strong_universe
 
 
 @pytest.fixture

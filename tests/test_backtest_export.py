@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from backtest_export import export_backtest_results
+from backtest.backtest_export import export_backtest_results
 
 
 @pytest.fixture

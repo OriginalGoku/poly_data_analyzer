@@ -4,9 +4,9 @@ from datetime import datetime
 
 from tqdm import tqdm
 
-from backtest_config import DipBuyBacktestConfig
-from backtest_export import export_backtest_results
-from backtest_runner import run_backtest_grid
+from backtest.backtest_config import DipBuyBacktestConfig
+from backtest.backtest_export import export_backtest_results
+from backtest.backtest_runner import run_backtest_grid
 
 
 def main():

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from dip_entry_detection import find_dip_entry, find_exit
+from backtest.dip_entry_detection import find_dip_entry, find_exit
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from backtest_baselines import (
+from backtest.backtest_baselines import (
     baseline_buy_at_open,
     baseline_buy_at_tipoff,
     baseline_buy_first_ingame,
