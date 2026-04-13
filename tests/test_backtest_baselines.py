@@ -29,16 +29,14 @@ def game_data():
         }
     )
 
-    events = pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T20:30:00",
-                "period": 4,
-                "away_score": 105,
-                "home_score": 102,
-            },
-        ]
-    )
+    events = [
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 105,
+            "home_score": 102,
+        },
+    ]
 
     manifest = {
         "match_id": "nba_game_1",

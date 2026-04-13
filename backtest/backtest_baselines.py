@@ -50,7 +50,7 @@ def baseline_buy_at_open(
 
     # Find last in-game trade (settlement)
     in_game = trades_df[
-        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] < game_end)
     ]
 
     if in_game.empty:
@@ -63,8 +63,8 @@ def baseline_buy_at_open(
     if exit_trade is not None:
         exit_ = {
             "exit_price": exit_trade["price"],
-            "exit_time": exit_trade["time"],
-            "hold_seconds": int((exit_trade["time"] - tipoff_time).total_seconds()),
+            "exit_time": exit_trade["datetime"],
+            "hold_seconds": int((exit_trade["datetime"] - tipoff_time).total_seconds()),
         }
     else:
         exit_ = {
@@ -128,7 +128,7 @@ def baseline_buy_at_tipoff(
 
     # Find last in-game trade (settlement)
     in_game = trades_df[
-        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] < game_end)
     ]
 
     if in_game.empty:
@@ -141,8 +141,8 @@ def baseline_buy_at_tipoff(
     if exit_trade is not None:
         exit_ = {
             "exit_price": exit_trade["price"],
-            "exit_time": exit_trade["time"],
-            "hold_seconds": int((exit_trade["time"] - tipoff_time).total_seconds()),
+            "exit_time": exit_trade["datetime"],
+            "hold_seconds": int((exit_trade["datetime"] - tipoff_time).total_seconds()),
         }
     else:
         exit_ = {
@@ -204,7 +204,7 @@ def baseline_buy_first_ingame(
 
     # Find first in-game trade
     in_game = trades_df[
-        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] < game_end)
     ]
 
     if in_game.empty:
@@ -224,12 +224,12 @@ def baseline_buy_first_ingame(
     entry_trade = in_game.iloc[0]
     exit_trade = in_game.iloc[-1]
 
-    entry = {"entry_price": entry_trade["price"], "entry_time": entry_trade["time"]}
+    entry = {"entry_price": entry_trade["price"], "entry_time": entry_trade["datetime"]}
 
     exit_ = {
         "exit_price": exit_trade["price"],
-        "exit_time": exit_trade["time"],
-        "hold_seconds": int((exit_trade["time"] - entry_trade["time"]).total_seconds()),
+        "exit_time": exit_trade["datetime"],
+        "hold_seconds": int((exit_trade["datetime"] - entry_trade["datetime"]).total_seconds()),
     }
 
     settlement = resolve_settlement(manifest, events, trades_df, game_end, sport, settings)
