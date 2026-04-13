@@ -1,5 +1,4 @@
 """Tests for settlement resolution."""
-import pandas as pd
 import pytest
 
 from backtest.backtest_settlement import resolve_settlement
@@ -18,49 +17,45 @@ def nba_manifest():
 @pytest.fixture
 def nba_events_away_wins():
     """NBA events with away team winning."""
-    return pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T19:30:00",
-                "period": 1,
-                "away_score": 10,
-                "home_score": 8,
-            },
-            {
-                "datetime": "2026-03-23T19:35:00",
-                "period": 1,
-                "away_score": 15,
-                "home_score": 12,
-            },
-            {
-                "datetime": "2026-03-23T20:30:00",
-                "period": 4,
-                "away_score": 105,
-                "home_score": 102,
-            },
-        ]
-    )
+    return [
+        {
+            "datetime": "2026-03-23T19:30:00",
+            "period": 1,
+            "away_score": 10,
+            "home_score": 8,
+        },
+        {
+            "datetime": "2026-03-23T19:35:00",
+            "period": 1,
+            "away_score": 15,
+            "home_score": 12,
+        },
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 105,
+            "home_score": 102,
+        },
+    ]
 
 
 @pytest.fixture
 def nba_events_home_wins():
     """NBA events with home team winning."""
-    return pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T19:30:00",
-                "period": 1,
-                "away_score": 10,
-                "home_score": 15,
-            },
-            {
-                "datetime": "2026-03-23T20:30:00",
-                "period": 4,
-                "away_score": 100,
-                "home_score": 105,
-            },
-        ]
-    )
+    return [
+        {
+            "datetime": "2026-03-23T19:30:00",
+            "period": 1,
+            "away_score": 10,
+            "home_score": 15,
+        },
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 100,
+            "home_score": 105,
+        },
+    ]
 
 
 def test_resolve_settlement_away_wins(nba_manifest, nba_events_away_wins):
@@ -99,7 +94,7 @@ def test_resolve_settlement_no_events(nba_manifest):
     """Test settlement when no events are available."""
     payout, method, settled = resolve_settlement(
         manifest=nba_manifest,
-        events=pd.DataFrame(),
+        events=[],
         trades_df=None,
         game_end=None,
         sport="nba",
@@ -129,22 +124,20 @@ def test_resolve_settlement_none_events(nba_manifest):
 
 def test_resolve_settlement_no_final_score(nba_manifest):
     """Test settlement when no final quarter events."""
-    events = pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T19:30:00",
-                "period": 1,
-                "away_score": 10,
-                "home_score": 8,
-            },
-            {
-                "datetime": "2026-03-23T19:35:00",
-                "period": 2,
-                "away_score": 20,
-                "home_score": 18,
-            },
-        ]
-    )
+    events = [
+        {
+            "datetime": "2026-03-23T19:30:00",
+            "period": 1,
+            "away_score": 10,
+            "home_score": 8,
+        },
+        {
+            "datetime": "2026-03-23T19:35:00",
+            "period": 2,
+            "away_score": 20,
+            "home_score": 18,
+        },
+    ]
 
     payout, method, settled = resolve_settlement(
         manifest=nba_manifest,
@@ -167,16 +160,14 @@ def test_resolve_settlement_home_favorite():
         "open_favorite_token": 1,  # Home team is favorite
     }
 
-    events = pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T20:30:00",
-                "period": 4,
-                "away_score": 100,
-                "home_score": 105,
-            },
-        ]
-    )
+    events = [
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 100,
+            "home_score": 105,
+        },
+    ]
 
     payout, method, settled = resolve_settlement(
         manifest=manifest,
@@ -193,14 +184,12 @@ def test_resolve_settlement_home_favorite():
 
 def test_resolve_settlement_unsupported_sport(nba_manifest):
     """Test settlement for non-NBA sport (v1 unsupported)."""
-    events = pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T20:00:00",
-                "period": 3,
-            },
-        ]
-    )
+    events = [
+        {
+            "datetime": "2026-03-23T20:00:00",
+            "period": 3,
+        },
+    ]
 
     payout, method, settled = resolve_settlement(
         manifest=nba_manifest,

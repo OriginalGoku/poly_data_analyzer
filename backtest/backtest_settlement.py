@@ -1,17 +1,17 @@
 """Settlement resolution for backtest."""
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
 
 def resolve_settlement(
     manifest: Dict,
-    events: pd.DataFrame,
+    events: Optional[List[Dict]],
     trades_df: pd.DataFrame,
     game_end,
     sport: str,
     settings,
-) -> Tuple[float, str, bool]:
+) -> Tuple[Optional[float], str, bool]:
     """Resolve settlement for a game.
 
     Method 1 (event-derived): If events exist and final score determinable,
@@ -21,7 +21,7 @@ def resolve_settlement(
 
     Args:
         manifest: Game manifest dict with match metadata
-        events: DataFrame with game events (may be empty)
+        events: List of event dicts with game events (may be None or empty)
         trades_df: DataFrame with trade data
         game_end: Game end time
         sport: Sport code (e.g., "nba", "nhl", "mlb")
@@ -29,26 +29,31 @@ def resolve_settlement(
 
     Returns:
         Tuple of (payout, method, settled)
-        - payout: 1.0 if entry token wins, 0.0 if loses
+        - payout: 1.0 if entry token wins, 0.0 if loses, None if unresolved
         - method: "event_derived" or "unresolved"
         - settled: True if method 1 succeeded, False otherwise
     """
-    if events is None or events.empty:
+    if events is None or not events:
         return (None, "unresolved", False)
 
     # Try to derive final winner from events
     # For NBA: look for final score in events
     if sport == "nba":
-        final_events = events[events.get("period", 0) == 4]  # Fourth quarter
-        if final_events.empty:
+        # Filter to fourth quarter events
+        final_events = [e for e in events if e.get("period") == 4]
+        if not final_events:
             return (None, "unresolved", False)
 
-        # Get final scores from last event with scores
-        score_events = final_events.dropna(subset=["away_score", "home_score"])
-        if score_events.empty:
+        # Find last event with both scores
+        final_event = None
+        for event in reversed(final_events):
+            if event.get("away_score") is not None and event.get("home_score") is not None:
+                final_event = event
+                break
+
+        if final_event is None:
             return (None, "unresolved", False)
 
-        final_event = score_events.iloc[-1]
         away_score = final_event.get("away_score", 0)
         home_score = final_event.get("home_score", 0)
 

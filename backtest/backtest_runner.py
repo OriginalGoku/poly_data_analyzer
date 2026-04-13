@@ -39,7 +39,7 @@ def run_backtest_grid(
         start_date=start_date,
         end_date=end_date,
         data_dir=data_dir,
-        exclude_inferred_price_quality=True,
+        exclude_inferred_price_quality=False,
     )
 
     all_results = []
@@ -137,7 +137,11 @@ def run_backtest_grid(
                         })
                     else:
                         trades_with_entry = filtered[filtered["entry_price"].notna()]
-                        trades_settled = filtered[filtered["settlement_occurred"] == True]
+                        trades_settled = (
+                            filtered[filtered["settlement_occurred"] == True]
+                            if "settlement_occurred" in filtered.columns
+                            else filtered[0:0]  # Empty dataframe
+                        )
 
                         aggregated.append({
                             "dip_threshold": dip_threshold,
@@ -149,7 +153,11 @@ def run_backtest_grid(
                             "total_trades": len(trades_with_entry),
                             "gross_roi_mean": trades_with_entry["roi_pct"].mean() if len(trades_with_entry) > 0 else 0,
                             "net_roi_mean": trades_with_entry["roi_pct"].mean() if len(trades_with_entry) > 0 else 0,
-                            "win_rate": (filtered["true_pnl_cents"] > 0).sum() / len(trades_settled) if len(trades_settled) > 0 else 0,
+                            "win_rate": (
+                                (filtered["true_pnl_cents"] > 0).sum() / len(trades_settled)
+                                if "true_pnl_cents" in filtered.columns and len(trades_settled) > 0
+                                else 0
+                            ),
                             "avg_entry_price": trades_with_entry["entry_price"].mean() if len(trades_with_entry) > 0 else 0,
                             "avg_hold_minutes": (trades_with_entry["hold_seconds"].mean() / 60) if len(trades_with_entry) > 0 else 0,
                         })
