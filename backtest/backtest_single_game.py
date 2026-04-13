@@ -67,7 +67,7 @@ def backtest_single_game(
 
     # Get analytics view for open/tipoff prices
     try:
-        analytics_view = get_analytics_view(date, data_dir=data_dir)
+        analytics_view = get_analytics_view(data_dir=data_dir, start_date=date, end_date=date)
         game_row = analytics_view[analytics_view["match_id"] == match_id]
 
         if game_row.empty:
