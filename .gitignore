@@ -3,6 +3,8 @@ data
 data/
 cache/
 analysis_outputs/
+backtest_results/
+backtest_results_*/
 
 # Python
 __pycache__/
