@@ -35,44 +35,64 @@ def export_backtest_results(
     summary_lines = [
         "# Backtest Summary\n",
         f"Total games tested: {len(per_game_df)}\n",
-        f"Games with entry: {(per_game_df['entry_price'].notna()).sum()}\n",
-        f"Games settled: {(per_game_df['settlement_occurred'] == True).sum()}\n",
     ]
 
-    if not aggregated_df.empty:
-        best_roi = aggregated_df.loc[aggregated_df["net_roi_mean"].idxmax()]
-        worst_roi = aggregated_df.loc[aggregated_df["net_roi_mean"].idxmin()]
-        summary_lines.extend([
-            f"\nBest performer (ROI): {best_roi['dip_threshold']}c dip, {best_roi['exit_type']} exit ({best_roi['net_roi_mean']:.2%})\n",
-            f"Worst performer (ROI): {worst_roi['dip_threshold']}c dip, {worst_roi['exit_type']} exit ({worst_roi['net_roi_mean']:.2%})\n",
-        ])
+    if not per_game_df.empty and "entry_price" in per_game_df.columns:
+        summary_lines.append(
+            f"Games with entry: {(per_game_df['entry_price'].notna()).sum()}\n"
+        )
+    if not per_game_df.empty and "settlement_occurred" in per_game_df.columns:
+        summary_lines.append(
+            f"Games settled: {(per_game_df['settlement_occurred'] == True).sum()}\n"
+        )
+
+    if not aggregated_df.empty and "net_roi_mean" in aggregated_df.columns:
+        best_idx = aggregated_df["net_roi_mean"].idxmax()
+        worst_idx = aggregated_df["net_roi_mean"].idxmin()
+
+        if pd.notna(best_idx) and pd.notna(worst_idx):
+            best_roi = aggregated_df.loc[best_idx]
+            worst_roi = aggregated_df.loc[worst_idx]
+            summary_lines.extend([
+                f"\nBest performer (ROI): {best_roi['dip_threshold']}c dip, {best_roi['exit_type']} exit ({best_roi['net_roi_mean']:.2%})\n",
+                f"Worst performer (ROI): {worst_roi['dip_threshold']}c dip, {worst_roi['exit_type']} exit ({worst_roi['net_roi_mean']:.2%})\n",
+            ])
 
     with open(f"{output_dir}/BACKTEST_SUMMARY.txt", "w") as f:
         f.writelines(summary_lines)
 
     # Generate heatmap visualization
-    if not aggregated_df.empty and "dip_threshold" in aggregated_df.columns:
-        pivoted = aggregated_df.pivot_table(
-            index="exit_type",
-            columns="dip_threshold",
-            values="net_roi_mean",
-            aggfunc="first",
-        )
-
-        fig = go.Figure(
-            data=go.Heatmap(
-                z=pivoted.values,
-                x=pivoted.columns,
-                y=pivoted.index,
-                colorscale="RdYlGn",
+    if (
+        not aggregated_df.empty
+        and "dip_threshold" in aggregated_df.columns
+        and "exit_type" in aggregated_df.columns
+        and "net_roi_mean" in aggregated_df.columns
+    ):
+        try:
+            pivoted = aggregated_df.pivot_table(
+                index="exit_type",
+                columns="dip_threshold",
+                values="net_roi_mean",
+                aggfunc="first",
             )
-        )
-        fig.update_layout(
-            title="Net ROI Heatmap by Dip Threshold and Exit Type",
-            xaxis_title="Dip Threshold (cents)",
-            yaxis_title="Exit Type",
-        )
-        fig.write_html(f"{output_dir}/roi_heatmap.html")
+
+            if not pivoted.empty:
+                fig = go.Figure(
+                    data=go.Heatmap(
+                        z=pivoted.values,
+                        x=pivoted.columns,
+                        y=pivoted.index,
+                        colorscale="RdYlGn",
+                    )
+                )
+                fig.update_layout(
+                    title="Net ROI Heatmap by Dip Threshold and Exit Type",
+                    xaxis_title="Dip Threshold (cents)",
+                    yaxis_title="Exit Type",
+                )
+                fig.write_html(f"{output_dir}/roi_heatmap.html")
+        except Exception:
+            pass  # Skip heatmap if pivot fails
 
     # Generate schema documentation
     schema_lines = [
