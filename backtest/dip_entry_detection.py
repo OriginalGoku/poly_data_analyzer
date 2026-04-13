@@ -109,7 +109,7 @@ def find_exit(
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "settlement",
-            "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
+            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }
 
@@ -129,7 +129,7 @@ def find_exit(
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "reversion_to_open",
-            "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
+            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }
 
@@ -150,7 +150,7 @@ def find_exit(
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "reversion_to_partial",
-            "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
+            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }
 
@@ -171,7 +171,7 @@ def find_exit(
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "fixed_profit",
-            "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
+            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }
 
@@ -208,7 +208,7 @@ def find_exit(
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "time_based_quarter",
-            "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
+            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }
 

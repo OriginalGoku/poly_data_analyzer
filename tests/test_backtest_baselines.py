@@ -19,7 +19,7 @@ def game_data():
 
     trades_df = pd.DataFrame(
         {
-            "time": [
+            "datetime": [
                 base_time + timedelta(minutes=1),
                 base_time + timedelta(minutes=2),
                 base_time + timedelta(minutes=5),
@@ -32,7 +32,7 @@ def game_data():
     events = pd.DataFrame(
         [
             {
-                "time": "2026-03-23T20:30:00",
+                "datetime": "2026-03-23T20:30:00",
                 "period": 4,
                 "away_score": 105,
                 "home_score": 102,
@@ -119,7 +119,7 @@ def test_baseline_buy_at_open_no_trades(game_data):
     """Test buy-at-open with no trades."""
     result = baseline_buy_at_open(
         open_price=0.92,
-        trades_df=pd.DataFrame({"time": [], "price": []}),
+        trades_df=pd.DataFrame({"datetime": [], "price": []}),
         tipoff_time=game_data["tipoff_time"],
         game_end=game_data["game_end"],
         manifest=game_data["manifest"],
@@ -137,7 +137,7 @@ def test_baseline_buy_at_open_no_trades(game_data):
 def test_baseline_buy_first_ingame_no_trades(game_data):
     """Test buy-first-in-game with no trades."""
     result = baseline_buy_first_ingame(
-        trades_df=pd.DataFrame({"time": [], "price": []}),
+        trades_df=pd.DataFrame({"datetime": [], "price": []}),
         tipoff_time=game_data["tipoff_time"],
         game_end=game_data["game_end"],
         manifest=game_data["manifest"],
@@ -157,7 +157,7 @@ def test_baseline_roi_comparison(game_data):
     base_time = game_data["base_time"]
     trades_df = pd.DataFrame(
         {
-            "time": [
+            "datetime": [
                 base_time + timedelta(minutes=1),
                 base_time + timedelta(minutes=10),
             ],

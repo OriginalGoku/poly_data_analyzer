@@ -28,7 +28,7 @@ def pregame_trades(base_time):
     """Pregame trades (before tipoff)."""
     return pd.DataFrame(
         {
-            "time": [
+            "datetime": [
                 base_time - timedelta(minutes=30),
                 base_time - timedelta(minutes=15),
             ],
@@ -42,7 +42,7 @@ def ingame_trades(base_time):
     """In-game trades with a dip."""
     return pd.DataFrame(
         {
-            "time": [
+            "datetime": [
                 base_time + timedelta(minutes=1),   # Open trades
                 base_time + timedelta(minutes=2),
                 base_time + timedelta(minutes=3),   # Dip
@@ -97,7 +97,7 @@ def test_find_dip_entry_no_dip(ingame_trades, game_times):
 def test_find_dip_entry_empty_trades(game_times):
     """Test with empty trades DataFrame."""
     result = find_dip_entry(
-        pd.DataFrame({"time": [], "price": []}),
+        pd.DataFrame({"datetime": [], "price": []}),
         open_price=0.92,
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
