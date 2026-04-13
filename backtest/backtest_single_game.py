@@ -127,7 +127,7 @@ def backtest_single_game(
 
     # Debug logging
     in_game_trades = trades_df[
-        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] < game_end)
     ]
     if len(in_game_trades) > 0:
         min_price = in_game_trades["price"].min()

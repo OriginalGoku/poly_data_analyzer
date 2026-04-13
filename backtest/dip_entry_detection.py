@@ -37,7 +37,7 @@ def find_dip_entry(
 
     # Filter to in-game trades (after tipoff, before game_end)
     in_game = trades_df[
-        (trades_df["time"] >= tipoff_time) & (trades_df["time"] < game_end)
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] < game_end)
     ].copy()
 
     if in_game.empty:
@@ -50,7 +50,7 @@ def find_dip_entry(
 
     entry = dip_hit.iloc[0]
     return {
-        "entry_time": entry["time"],
+        "entry_time": entry["datetime"],
         "entry_price": entry["price"],
     }
 
@@ -91,11 +91,11 @@ def find_exit(
     Returns:
         Dict with keys: exit_time, exit_price, exit_type, hold_seconds, status.
     """
-    post_entry = trades_df[trades_df["time"] > entry_time].copy()
+    post_entry = trades_df[trades_df["datetime"] > entry_time].copy()
 
     if exit_type == "settlement":
         # Exit at last in-game trade before game_end
-        in_game_post = post_entry[post_entry["time"] < game_end]
+        in_game_post = post_entry[post_entry["datetime"] < game_end]
         if in_game_post.empty:
             return {
                 "exit_time": None,
@@ -106,7 +106,7 @@ def find_exit(
             }
         exit_trade = in_game_post.iloc[-1]
         return {
-            "exit_time": exit_trade["time"],
+            "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "settlement",
             "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
@@ -126,7 +126,7 @@ def find_exit(
             }
         exit_trade = revert.iloc[0]
         return {
-            "exit_time": exit_trade["time"],
+            "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "reversion_to_open",
             "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
@@ -147,7 +147,7 @@ def find_exit(
             }
         exit_trade = revert.iloc[0]
         return {
-            "exit_time": exit_trade["time"],
+            "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "reversion_to_partial",
             "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
@@ -168,7 +168,7 @@ def find_exit(
             }
         exit_trade = profit.iloc[0]
         return {
-            "exit_time": exit_trade["time"],
+            "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "fixed_profit",
             "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
@@ -193,7 +193,7 @@ def find_exit(
         )
 
         # Find last trade at or before quarter_end
-        valid = post_entry[post_entry["time"] <= quarter_end]
+        valid = post_entry[post_entry["datetime"] <= quarter_end]
         if valid.empty:
             return {
                 "exit_time": None,
@@ -205,7 +205,7 @@ def find_exit(
 
         exit_trade = valid.iloc[-1]
         return {
-            "exit_time": exit_trade["time"],
+            "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "time_based_quarter",
             "hold_seconds": int((exit_trade["time"] - entry_time).total_seconds()),
