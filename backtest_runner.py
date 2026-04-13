@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Tuple
 
 import pandas as pd
+from tqdm import tqdm
 
 from backtest_config import DipBuyBacktestConfig
 from backtest_single_game import backtest_single_game
@@ -14,6 +15,7 @@ def run_backtest_grid(
     end_date: datetime,
     configs: List[DipBuyBacktestConfig],
     data_dir: str = "data",
+    verbose: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run backtest grid across universe and configs.
 
@@ -22,6 +24,7 @@ def run_backtest_grid(
         end_date: Backtest end date (inclusive)
         configs: List of DipBuyBacktestConfig to test
         data_dir: Data directory root
+        verbose: If True, show tqdm progress bars
 
     Returns:
         Tuple of (aggregated_df, per_game_df)
@@ -37,7 +40,17 @@ def run_backtest_grid(
     )
 
     all_results = []
-    for date, match_id, sport, open_fav_price, tipoff_fav_price, token_id, can_settle, price_quality in universe:
+    total_combos = len(universe) * len(configs)
+
+    # Create progress iterator
+    iterator = tqdm(
+        universe,
+        desc="Processing games",
+        unit="game",
+        disable=not verbose,
+    ) if verbose else universe
+
+    for date, match_id, sport, open_fav_price, tipoff_fav_price, token_id, can_settle, price_quality in iterator:
         for config in configs:
             # Skip if sport doesn't match filter
             if config.sport_filter != "all" and config.sport_filter != sport:
@@ -62,7 +75,14 @@ def run_backtest_grid(
         # Return empty aggregated results if no games were tested
         return pd.DataFrame(), per_game_df
 
-    for config in configs:
+    configs_iter = tqdm(
+        configs,
+        desc="Aggregating results",
+        unit="config",
+        disable=not verbose,
+    ) if verbose else configs
+
+    for config in configs_iter:
         for dip_threshold in config.dip_thresholds:
             for exit_type in [config.exit_type]:
                 for fee_model in [config.fee_model]:

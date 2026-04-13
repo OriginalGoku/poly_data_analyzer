@@ -2,6 +2,8 @@
 import argparse
 from datetime import datetime
 
+from tqdm import tqdm
+
 from backtest_config import DipBuyBacktestConfig
 from backtest_export import export_backtest_results
 from backtest_runner import run_backtest_grid
@@ -55,15 +57,16 @@ def main():
     print(f"Running backtest from {args.start_date} to {args.end_date}")
     print(f"Configs: {len(configs)}")
 
-    # Run grid
+    # Run grid with progress bar
     agg_df, per_game_df = run_backtest_grid(
         start_date=start_date,
         end_date=end_date,
         configs=configs,
         data_dir=args.data_dir,
+        verbose=True,
     )
 
-    print(f"Completed {len(per_game_df)} games")
+    print(f"\n✓ Completed {len(per_game_df)} games")
 
     # Export
     export_backtest_results(
