@@ -39,8 +39,8 @@ def backtest_single_game(
     """
     # Load game data
     try:
-        game_data = load_game(date, match_id, data_dir=data_dir)
-        trades_df = game_data["trades"]
+        game_data = load_game(data_dir, date, match_id)
+        trades_df = game_data["trades_df"]
         events = game_data["events"]
         manifest = game_data["manifest"]
     except Exception as e:
