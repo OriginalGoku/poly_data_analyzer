@@ -78,13 +78,22 @@ def run_backtest_grid(
         status_counts = per_game_df["status"].value_counts().to_dict()
         logger.info(f"Status breakdown: {status_counts}")
 
-        games_with_entry = (per_game_df["entry_price"].notna()).sum()
-        logger.info(f"Games with dip entry triggered: {games_with_entry}/{len(per_game_df)}")
+        # Log errors if present
+        failed = per_game_df[per_game_df["status"] == "failed_to_load"]
+        if not failed.empty and "error" in failed.columns:
+            error_counts = failed["error"].value_counts()
+            logger.error(f"Load failures (top 3):")
+            for error, count in error_counts.head(3).items():
+                logger.error(f"  {count}x: {error}")
 
-        if games_with_entry > 0:
-            entry_trades = per_game_df[per_game_df["entry_price"].notna()]
-            logger.info(f"  Entry ROI range: {entry_trades['roi_pct'].min():.2%} to {entry_trades['roi_pct'].max():.2%}")
-            logger.info(f"  Entry ROI mean: {entry_trades['roi_pct'].mean():.2%}")
+        if "entry_price" in per_game_df.columns:
+            games_with_entry = (per_game_df["entry_price"].notna()).sum()
+            logger.info(f"Games with dip entry triggered: {games_with_entry}/{len(per_game_df)}")
+
+            if games_with_entry > 0:
+                entry_trades = per_game_df[per_game_df["entry_price"].notna()]
+                logger.info(f"  Entry ROI range: {entry_trades['roi_pct'].min():.2%} to {entry_trades['roi_pct'].max():.2%}")
+                logger.info(f"  Entry ROI mean: {entry_trades['roi_pct'].mean():.2%}")
 
     # Aggregate by strategy
     aggregated = []

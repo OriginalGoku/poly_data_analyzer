@@ -90,12 +90,13 @@ def main():
 
     # Log summary stats
     if not per_game_df.empty:
-        games_with_entry = (per_game_df["entry_price"].notna()).sum()
-        games_settled = (per_game_df["settlement_occurred"] == True).sum()
-        logger.info(f"  Games with dip entry triggered: {games_with_entry}")
-        logger.info(f"  Games with settlement: {games_settled}")
-        if games_with_entry > 0:
-            logger.info(f"  Mean ROI (with entry): {per_game_df[per_game_df['entry_price'].notna()]['roi_pct'].mean():.2%}")
+        if "entry_price" in per_game_df.columns:
+            games_with_entry = (per_game_df["entry_price"].notna()).sum()
+            games_settled = (per_game_df["settlement_occurred"] == True).sum() if "settlement_occurred" in per_game_df.columns else 0
+            logger.info(f"  Games with dip entry triggered: {games_with_entry}")
+            logger.info(f"  Games with settlement: {games_settled}")
+            if games_with_entry > 0:
+                logger.info(f"  Mean ROI (with entry): {per_game_df[per_game_df['entry_price'].notna()]['roi_pct'].mean():.2%}")
 
     logger.info(f"Aggregated results: {len(agg_df)} strategy combinations tested")
 

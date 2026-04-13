@@ -44,6 +44,7 @@ def backtest_single_game(
         events = game_data["events"]
         manifest = game_data["manifest"]
     except Exception as e:
+        logger.error(f"{date} {match_id}: Failed to load game data: {type(e).__name__}: {str(e)}")
         return {
             "strategy": "dip_buy",
             "dip_threshold": None,
@@ -52,6 +53,12 @@ def backtest_single_game(
             "sport": None,
             "match_id": match_id,
             "date": date,
+            "entry_price": None,
+            "exit_price": None,
+            "gross_pnl_cents": 0,
+            "net_pnl_cents": 0,
+            "roi_pct": 0,
+            "hold_seconds": 0,
             "status": "failed_to_load",
             "error": str(e),
         }
