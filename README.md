@@ -45,6 +45,34 @@ Each date directory contains:
 - `{match_id}_trades.json.gz` -- trade history per game (gzip-compressed)
 - `{match_id}_events.json.gz` -- play-by-play events per game (gzip-compressed; NBA: made baskets only)
 
+## Backtest Framework
+
+Comprehensive dip-buy backtesting system for evaluating entry/exit strategies on historical Polymarket sports data. Supports configurable dip thresholds, multiple exit strategies, and fee models.
+
+### Key Features
+
+- **Dip detection:** Identify price dips below market open by N cents during in-game trading
+- **Exit strategies:** Settlement, reversion-to-open, reversion-to-partial, fixed profit, time-based (by quarter)
+- **Baseline strategies:** Buy-at-open, buy-at-tipoff, buy-first-in-game for comparison
+- **Fee models:** Taker (0.2%) and maker (0%) Polymarket fees
+- **Grid testing:** Run multiple configurations across date ranges and sports
+- **Results export:** CSV/JSON aggregations and heatmap visualizations (dip threshold vs exit type)
+
+### Usage
+
+```bash
+python backtest_cli.py \
+  --start-date 2026-03-01 \
+  --end-date 2026-04-01 \
+  --dip-thresholds 10,15,20 \
+  --exit-types settlement,reversion_to_open \
+  --fee-models taker,maker \
+  --sport nba \
+  --output backtest_results/
+```
+
+Results include aggregated statistics (return %, win rate, Sharpe ratio) and per-game trade records.
+
 ## Project Structure
 
 ```
@@ -57,6 +85,20 @@ loaders.py          # Data loading (dates, games, trades, events, tricode mappin
 regime_transitions.py # Favorite-side band transition detection and per-game cache loader
 sensitivity.py      # Per-event scoring sensitivity computation and cache loader
 whales.py           # Whale wallet identification, classification, side attribution, and trade-size stats
+
+Backtest Framework:
+backtest_cli.py     # CLI entry point and argument parsing
+backtest_config.py  # Configuration and sport-specific parameters
+backtest_runner.py  # Grid testing and results aggregation
+backtest_single_game.py # Single-game orchestration and PnL computation
+backtest_baselines.py # Baseline strategy implementations (buy-at-open, buy-at-tipoff, buy-first-in-game)
+backtest_universe.py # Universe filtering (e.g., upper-strong favorites)
+dip_entry_detection.py # Dip touch detection and entry logic
+backtest_settlement.py # Settlement price resolution for outcome settlement
+backtest_pnl.py     # Trade-level PnL computation
+backtest_export.py  # CSV/JSON export and heatmap visualization
+
+Other:
 chart_settings.json # Configurable thresholds (volume spikes, whale detection, sensitivity/discrepancy/regime/dip windows)
 cache/              # Local computed artifacts, including sensitivity/discrepancy/regime/dip JSON caches
 requirements.txt    # Python dependencies

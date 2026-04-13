@@ -29,3 +29,12 @@ Include a settings hash in the sensitivity cache filename so changes to window s
 ### Data quality filtering controls
 **Date:** 09/04/2026
 UI controls to filter by price quality (exact/inferred), data source (goldsky/data_api), or exclude truncated histories.
+
+### Backtest refinements
+**Date:** 13/04/2026
+- Slippage model integration: add configurable bid-ask spread assumption for entry/exit simulation
+- Dynamic profit targets: based on pre-game volatility or realized spread
+- Entry logic variations: e.g., "dip + volume spike" combined conditions, momentum-based entry
+- Walk-forward and rolling-window backtests for time-varying strategy performance
+- Integration with dashboard: overlay backtest entry/exit signals on single-game charts
+- Result comparisons: side-by-side statistical tests (e.g., t-tests of Sharpe ratios across sports)

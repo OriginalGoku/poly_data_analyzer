@@ -9,6 +9,7 @@ python app.py                     # run Dash app on localhost:8050
 
 ## Structure
 
+### Dashboard & Analytics
 - `app.py` -- Dash app entry point (layout + callbacks + whale card builder)
 - `analytics.py` -- Cached game-level checkpoint analytics, sport-specific quantile bands, and per-game regime summaries
 - `charts.py` -- Plotly figure builders (pregame 3-row figure; in-game 4-row figure with whale markers and aggressor cumulative flow; sensitivity, discrepancy, regime transition, and dip recovery charts)
@@ -18,7 +19,23 @@ python app.py                     # run Dash app on localhost:8050
 - `sensitivity.py` -- Per-event scoring sensitivity computation and cache loader
 - `loaders.py` -- Data loading and parsing
 - `whales.py` -- Whale wallet identification, classification, filtering, and maker/taker trade-size stats
+
+### Backtest Framework
+- `backtest_cli.py` -- CLI entry point; parses date range, dip thresholds, exit types, fee models, and sport filters
+- `backtest_config.py` -- `DipBuyBacktestConfig` frozen dataclass; defines parameters and sport-specific durations
+- `backtest_runner.py` -- Grid orchestration; loads games by date range, runs each config, aggregates results
+- `backtest_single_game.py` -- Single-game backtest; detects dips, applies exit logic, computes PnL for one game/config
+- `backtest_baselines.py` -- Baseline strategies for comparison (buy-at-open, buy-at-tipoff, buy-first-in-game)
+- `backtest_universe.py` -- Universe filtering; e.g., `filter_upper_strong_universe()` for favorable market opens
+- `dip_entry_detection.py` -- Trade-level dip touch detection; finds first in-game price at or below open-price minus threshold
+- `backtest_settlement.py` -- Resolves settlement prices from events and trades; handles market closes and outcomes
+- `backtest_pnl.py` -- Computes trade-level PnL including slippage and Polymarket fees
+- `backtest_export.py` -- Exports aggregated results (CSV/JSON) and generates heatmap visualizations
+
+### Configuration
 - `chart_settings.json` -- Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)
+
+### Data & Docs
 - `cache/` -- Local computed artifacts such as per-game sensitivity, discrepancy, regime transition, and dip recovery JSON caches
 - `DATA_SPEC.md` -- Upstream data format reference (from poly-data-downloader)
 - `data/` -- Trade data directories (YYYY-MM-DD format, not checked in)

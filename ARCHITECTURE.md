@@ -79,6 +79,80 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - Builds contiguous below-threshold intervals, tracks minimum price, recovery magnitude, and whether the interval recovered, remained below, or ended with the game
 - Caches rows to `cache/{date}/{match_id}_dip_recovery.json`
 
+## Backtest Framework
+
+Complete dip-buy backtesting system for evaluating entry and exit strategies on historical Polymarket sports trade data.
+
+### Entry Points & Configuration
+
+#### `backtest_cli.py` -- CLI Entry Point
+- Parses command-line arguments: date range, dip thresholds, exit types, fee models, sport filter
+- Instantiates `DipBuyBacktestConfig` objects for each exit-type/fee-model combination
+- Delegates grid execution to `run_backtest_grid()`
+
+#### `backtest_config.py` -- Configuration
+- `DipBuyBacktestConfig`: Frozen dataclass with:
+  - **Dip thresholds**: Tuple of dip amounts in cents (e.g., 10, 15, 20 cents below market open)
+  - **Exit types**: `settlement` (hold to market close), `reversion_to_open` (exit when price returns to open), `reversion_to_partial` (exit at open + profit_target), `fixed_profit` (exit at open + fixed cents), `time_based_quarter` (exit at specified quarter boundary)
+  - **Fee models**: `taker` (0.2% Polymarket fee) or `maker` (0% fee)
+  - **Sport filter**: `nba`, `nhl`, `mlb`, or `all`
+  - **Sport-specific durations**: NBA quarter (12 min), NHL period (20 min), MLB (wall-clock only)
+  - Validation in `__post_init__` ensures non-empty thresholds, valid parameters
+
+### Grid Orchestration & Aggregation
+
+#### `backtest_runner.py` -- Grid Orchestration
+- `run_backtest_grid()`: For each date in the range, loads all games matching sport and quality filters, runs each config on each game
+- Collects per-game results, aggregates across all games per config
+- Returns `aggregated_df` (one row per config with statistics) and `per_game_df` (all trade-level records)
+
+#### `backtest_universe.py` -- Universe Filtering
+- `filter_upper_strong_universe()`: Filters to games where market open indicated upper-strong favorite (above 75th percentile)
+- Used when testing strategies on a restricted population
+
+### Single-Game Execution
+
+#### `backtest_single_game.py` -- Single-Game Orchestration
+- Orchestrates entry detection, exit logic, and PnL computation for one game + one config
+- Calls `find_dip_entry()` to locate the dip touch
+- Applies config's exit type logic (e.g., find reversion price, fixed time checkpoint)
+- Computes settlement price from events
+- Returns trade record with entry price, exit price, PnL, win/loss, holding duration
+
+### Strategy & Entry/Exit Logic
+
+#### `backtest_baselines.py` -- Baseline Strategies
+- `baseline_buy_at_open()`: Buys at market-open price (from pre-game VWAP), exits per config
+- `baseline_buy_at_tipoff()`: Buys at first tipoff-time trade, exits per config
+- `baseline_buy_first_in_game()`: Buys at first in-game trade, exits per config
+- Each returns PnL record with entry/exit prices and fees applied
+
+#### `dip_entry_detection.py` -- Dip Touch Detection
+- `find_dip_entry()`: Scans in-game trades (post-tipoff), finds first touch at or below (open_price - dip_threshold_cents / 100)
+- Returns entry dict with price, timestamp, or None if no dip
+- Respects in-game window (tipoff to game_end)
+
+### Settlement & PnL
+
+#### `backtest_settlement.py` -- Settlement Resolution
+- `resolve_settlement()`: Extracts final settlement price from events or trade data
+- Handles market close timing, outcome state, and edge cases (overtime, data gaps)
+- Returns settlement price and resolution metadata
+
+#### `backtest_pnl.py` -- Trade-Level PnL
+- `compute_trade_pnl()`: Given entry, exit, and fee_pct, calculates PnL in cents and %
+- Applies Polymarket fees to both sides of the trade
+- Returns PnL, win/loss flag, and holding duration
+
+### Results Export & Visualization
+
+#### `backtest_export.py` -- Export & Visualization
+- `export_backtest_results()`: Exports aggregated results (one row per strategy) and per-game records
+  - **CSV exports**: `aggregated.csv` (strategy summary) and `per_game.csv` (all trade records)
+  - **JSON exports**: Same data as JSON for programmatic analysis
+  - **Heatmap visualization**: Dip threshold (rows) vs exit type (columns), colored by return %; separate heatmaps for each fee model and sport
+- Visualizations use Plotly subplots with sorted rows/columns for readability
+
 ### `whales.py` -- Whale Analysis
 
 - `analyze_whales()` identifies high-volume wallets exceeding a configurable % of total market volume

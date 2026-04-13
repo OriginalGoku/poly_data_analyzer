@@ -59,8 +59,13 @@ class NBAOpenTipoffSummary:
     tipoff_prediction_games: int
     open_to_tipoff_swing_rate: float | None
     any_pregame_switch_rate: float | None
+    open_to_game_end_switch_rate: float | None
+    any_in_game_switch_rate: float | None
     open_favorite_win_rate: float | None
     tipoff_favorite_win_rate: float | None
+    mean_open_favorite_in_game_min_price: float | None
+    mean_open_favorite_max_adverse_excursion: float | None
+    mean_open_favorite_max_adverse_excursion_pct: float | None
     mean_abs_move: float | None
     mean_path_volatility: float | None
 
@@ -325,6 +330,9 @@ class NBAOpenTipoffAnalysisService:
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
             )
 
         return NBAOpenTipoffSummary(
@@ -335,8 +343,19 @@ class NBAOpenTipoffAnalysisService:
             tipoff_prediction_games=_safe_true_count(dataset["tipoff_prediction_available"]),
             open_to_tipoff_swing_rate=_safe_mean(dataset["favorite_changed_open_to_tipoff"].astype(float)),
             any_pregame_switch_rate=_safe_mean(dataset["any_favorite_switch_pregame"].astype(float)),
+            open_to_game_end_switch_rate=_safe_mean(
+                dataset["favorite_changed_open_to_game_end"].astype(float)
+            ),
+            any_in_game_switch_rate=_safe_mean(dataset["any_favorite_switch_ingame"].astype(float)),
             open_favorite_win_rate=_nullable_bool_rate(dataset["open_favorite_won"]),
             tipoff_favorite_win_rate=_nullable_bool_rate(dataset["tipoff_favorite_won"]),
+            mean_open_favorite_in_game_min_price=_safe_mean(dataset["open_favorite_in_game_min_price"]),
+            mean_open_favorite_max_adverse_excursion=_safe_mean(
+                dataset["open_favorite_max_adverse_excursion"]
+            ),
+            mean_open_favorite_max_adverse_excursion_pct=_safe_mean(
+                dataset["open_favorite_max_adverse_excursion_pct"]
+            ),
             mean_abs_move=_safe_mean(dataset["favorite_move_abs"]),
             mean_path_volatility=_safe_mean(dataset["favorite_price_realized_volatility"]),
         )
@@ -365,8 +384,26 @@ class NBAOpenTipoffAnalysisService:
             tipoff_prediction_games=("tipoff_prediction_available", _safe_true_count),
             open_to_tipoff_swing_rate=("favorite_changed_open_to_tipoff", lambda s: float(pd.Series(s).mean())),
             any_pregame_switch_rate=("any_favorite_switch_pregame", lambda s: float(pd.Series(s).mean())),
+            open_to_game_end_switch_rate=("favorite_changed_open_to_game_end", lambda s: float(pd.Series(s).mean())),
+            any_in_game_switch_rate=("any_favorite_switch_ingame", lambda s: float(pd.Series(s).mean())),
             open_favorite_win_rate=("open_favorite_won", _nullable_bool_rate),
             tipoff_favorite_win_rate=("tipoff_favorite_won", _nullable_bool_rate),
+            mean_open_favorite_in_game_min_price=("open_favorite_in_game_min_price", "mean"),
+            median_open_favorite_in_game_min_price=("open_favorite_in_game_min_price", "median"),
+            mean_open_favorite_in_game_max_price=("open_favorite_in_game_max_price", "mean"),
+            mean_open_favorite_max_adverse_excursion=("open_favorite_max_adverse_excursion", "mean"),
+            mean_open_favorite_max_adverse_excursion_pct=(
+                "open_favorite_max_adverse_excursion_pct",
+                "mean",
+            ),
+            mean_open_favorite_max_favorable_excursion=(
+                "open_favorite_max_favorable_excursion",
+                "mean",
+            ),
+            mean_open_favorite_max_favorable_excursion_pct=(
+                "open_favorite_max_favorable_excursion_pct",
+                "mean",
+            ),
             mean_signed_move=("favorite_move_signed", "mean"),
             median_signed_move=("favorite_move_signed", "median"),
             mean_abs_move=("favorite_move_abs", "mean"),
@@ -699,6 +736,8 @@ def _build_nba_analysis_dataset(
             pregame_min_cum_vol,
             vol_spike_std,
             vol_spike_lookback,
+            row.get("open_favorite_team"),
+            row.get("open_favorite_price"),
         )
         merged = {**row, **details}
         merged["favorite_move_signed"] = _compute_signed_move(
@@ -780,6 +819,8 @@ def _load_nba_detail_row(
     pregame_min_cum_vol: float,
     vol_spike_std: float,
     vol_spike_lookback: int,
+    open_favorite_team: str | None,
+    open_favorite_price: float | None,
 ) -> dict[str, Any]:
     settings = ChartSettings(
         pregame_min_cum_vol=pregame_min_cum_vol,
@@ -790,6 +831,16 @@ def _load_nba_detail_row(
     game = load_game(data_dir, date, match_id)
     details = path_analyzer.compute_metrics(game["trades_df"], game["events"])
     final_winner = _derive_nba_final_winner(game["manifest"], game["events"])
+    details.update(
+        _compute_in_game_open_favorite_metrics(
+            game["trades_df"],
+            game["events"],
+            game["manifest"],
+            settings,
+            open_favorite_team,
+            open_favorite_price,
+        )
+    )
     details.update(
         {
             "final_winner": final_winner,
@@ -803,6 +854,136 @@ def _favorite_changed(open_team: str | None, tipoff_team: str | None) -> bool:
     if not open_team or not tipoff_team:
         return False
     return open_team != tipoff_team
+
+
+def _compute_in_game_open_favorite_metrics(
+    trades_df: pd.DataFrame,
+    events: list[dict] | None,
+    manifest: dict,
+    settings: ChartSettings,
+    open_favorite_team: str | None,
+    open_favorite_price: float | None,
+) -> dict[str, Any]:
+    metrics = {
+        "last_in_game_favorite_team": None,
+        "favorite_changed_open_to_game_end": False,
+        "favorite_switch_count_ingame": 0,
+        "any_favorite_switch_ingame": False,
+        "open_favorite_in_game_min_price": None,
+        "open_favorite_in_game_max_price": None,
+        "open_favorite_time_to_min_seconds": None,
+        "open_favorite_time_to_max_seconds": None,
+        "open_favorite_max_adverse_excursion": None,
+        "open_favorite_max_adverse_excursion_pct": None,
+        "open_favorite_max_favorable_excursion": None,
+        "open_favorite_max_favorable_excursion_pct": None,
+    }
+    if not events:
+        return metrics
+
+    score_events = [
+        event
+        for event in events
+        if event.get("time_actual_dt") is not None
+        and event.get("away_score") is not None
+        and event.get("home_score") is not None
+    ]
+    if not score_events or len(manifest.get("token_ids", [])) < 2 or len(manifest.get("outcomes", [])) < 2:
+        return metrics
+
+    tipoff_time = min(event["time_actual_dt"] for event in score_events)
+    game_end = max(event["time_actual_dt"] for event in score_events) + pd.Timedelta(
+        minutes=float(getattr(settings, "post_game_buffer_min", 10))
+    )
+    ingame = trades_df[
+        (trades_df["datetime"] >= tipoff_time) & (trades_df["datetime"] <= game_end)
+    ].sort_values("datetime").copy()
+    if ingame.empty:
+        return metrics
+
+    away_token = manifest["token_ids"][0]
+    away_team = manifest["outcomes"][0]
+    home_team = manifest["outcomes"][1]
+
+    ingame["away_price"] = ingame["price"].astype(float)
+    home_mask = ingame["asset"] != away_token
+    ingame.loc[home_mask, "away_price"] = 1.0 - ingame.loc[home_mask, "away_price"]
+    ingame["home_price"] = 1.0 - ingame["away_price"]
+    price_path = (
+        ingame.groupby("datetime")[["away_price", "home_price"]]
+        .last()
+        .sort_index()
+        .ffill()
+        .dropna()
+    )
+    if price_path.empty:
+        return metrics
+
+    favorite_path = price_path.resample(PregameFavoritePathAnalyzer.PATH_RESAMPLE_FREQ).last().ffill().dropna()
+    if favorite_path.empty:
+        favorite_path = price_path
+    favorite_path = _attach_favorite_columns(favorite_path, away_team, home_team)
+    last_in_game_favorite_team = favorite_path.iloc[-1]["favorite_team"] if not favorite_path.empty else None
+    switch_counter = PregameFavoritePathAnalyzer(settings)
+    favorite_switch_count_ingame = switch_counter._count_durable_switches(favorite_path)
+
+    if open_favorite_team in (away_team, home_team):
+        team_col = "away_price" if open_favorite_team == away_team else "home_price"
+        team_series = price_path[team_col].dropna()
+        if not team_series.empty:
+            min_idx = team_series.idxmin()
+            max_idx = team_series.idxmax()
+            min_price = float(team_series.loc[min_idx])
+            max_price = float(team_series.loc[max_idx])
+            metrics["open_favorite_in_game_min_price"] = min_price
+            metrics["open_favorite_in_game_max_price"] = max_price
+            metrics["open_favorite_time_to_min_seconds"] = float((min_idx - tipoff_time).total_seconds())
+            metrics["open_favorite_time_to_max_seconds"] = float((max_idx - tipoff_time).total_seconds())
+            if open_favorite_price is not None and not pd.isna(open_favorite_price):
+                open_price = float(open_favorite_price)
+                metrics["open_favorite_max_adverse_excursion"] = max(open_price - min_price, 0.0)
+                metrics["open_favorite_max_favorable_excursion"] = max(max_price - open_price, 0.0)
+                if open_price > 0:
+                    metrics["open_favorite_max_adverse_excursion_pct"] = (
+                        metrics["open_favorite_max_adverse_excursion"] / open_price
+                    )
+                    metrics["open_favorite_max_favorable_excursion_pct"] = (
+                        metrics["open_favorite_max_favorable_excursion"] / open_price
+                    )
+
+    metrics["last_in_game_favorite_team"] = last_in_game_favorite_team
+    metrics["favorite_changed_open_to_game_end"] = bool(
+        open_favorite_team not in (None, "Tie")
+        and last_in_game_favorite_team not in (None, "Tie")
+        and open_favorite_team != last_in_game_favorite_team
+    )
+    metrics["favorite_switch_count_ingame"] = favorite_switch_count_ingame
+    metrics["any_favorite_switch_ingame"] = favorite_switch_count_ingame > 0
+    return metrics
+
+
+def _attach_favorite_columns(price_path: pd.DataFrame, away_team: str, home_team: str) -> pd.DataFrame:
+    path = price_path.copy()
+    favorite_teams: list[str] = []
+    favorite_prices: list[float] = []
+    favorite_margins: list[float] = []
+    for row in path.itertuples():
+        away_price = float(row.away_price)
+        home_price = float(row.home_price)
+        if abs(away_price - home_price) <= TIE_TOLERANCE:
+            favorite_teams.append("Tie")
+            favorite_prices.append(away_price)
+        elif away_price > home_price:
+            favorite_teams.append(away_team)
+            favorite_prices.append(away_price)
+        else:
+            favorite_teams.append(home_team)
+            favorite_prices.append(home_price)
+        favorite_margins.append(abs(away_price - home_price))
+    path["favorite_team"] = favorite_teams
+    path["favorite_price"] = favorite_prices
+    path["favorite_margin"] = favorite_margins
+    return path
 
 
 def _build_transition_label(open_band: str | None, tipoff_band: str | None) -> str:
