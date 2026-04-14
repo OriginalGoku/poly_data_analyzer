@@ -58,8 +58,8 @@ def test_config_sport_filters():
         assert config.sport_filter == sport
 
 
-def test_config_time_exits():
-    """Test time-based exit checkpoints."""
-    for checkpoint in ["Q1", "Q2", "Q3", "Q4", "off"]:
-        config = DipBuyBacktestConfig(time_exit_checkpoint=checkpoint)
-        assert config.time_exit_checkpoint == checkpoint
+def test_config_exit_types():
+    """Test all valid exit types."""
+    for exit_type in ["settlement", "reversion_to_open", "reversion_to_partial", "fixed_profit"]:
+        config = DipBuyBacktestConfig(exit_type=exit_type)
+        assert config.exit_type == exit_type

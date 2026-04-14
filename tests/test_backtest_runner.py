@@ -104,6 +104,7 @@ def test_run_backtest_grid_multiple_configs(mock_universe):
     mock_result = {
         "strategy": "dip_buy",
         "dip_threshold": 10,
+        "dip_anchor": "open",
         "exit_type": "settlement",
         "fee_model": "taker",
         "sport": "nba",
@@ -111,6 +112,8 @@ def test_run_backtest_grid_multiple_configs(mock_universe):
         "date": "2026-03-23",
         "entry_price": 0.81,
         "exit_price": 0.87,
+        "gross_pnl_cents": 6.0,
+        "net_pnl_cents": 5.676,
         "roi_pct": 0.07,
         "hold_seconds": 300,
         "settlement_method": "event_derived",
@@ -135,3 +138,10 @@ def test_run_backtest_grid_multiple_configs(mock_universe):
 
     # Should call backtest for each config × universe combo
     assert mock_backtest.call_count >= 2
+
+    # gross_roi_mean is derived from gross_pnl_cents; net_roi_mean from roi_pct
+    # With fee_pct > 0, they must differ
+    taker_rows = agg_df[agg_df["fee_model"] == "taker"]
+    if len(taker_rows) > 0:
+        assert (taker_rows["gross_roi_mean"] != taker_rows["net_roi_mean"]).any()
+        assert (taker_rows["gross_roi_mean"] > taker_rows["net_roi_mean"]).all()

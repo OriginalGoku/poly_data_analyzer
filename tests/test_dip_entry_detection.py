@@ -1,6 +1,5 @@
 """Tests for dip entry/exit detection."""
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -54,14 +53,6 @@ def ingame_trades(base_time):
             "price": [0.92, 0.91, 0.81, 0.84, 0.87, 0.92, 0.94],
         }
     )
-
-
-@pytest.fixture
-def mock_settings():
-    """Mock settings object."""
-    settings = MagicMock()
-    settings.nba_quarter_duration_min = 12
-    return settings
 
 
 def test_find_dip_entry_basic(ingame_trades, game_times):
@@ -122,7 +113,7 @@ def test_find_dip_entry_pregame_only(pregame_trades, game_times):
     assert result is None
 
 
-def test_find_exit_settlement(ingame_trades, game_times, mock_settings):
+def test_find_exit_settlement(ingame_trades, game_times):
     """Test settlement exit (last in-game trade)."""
     entry_result = find_dip_entry(
         ingame_trades,
@@ -130,7 +121,7 @@ def test_find_exit_settlement(ingame_trades, game_times, mock_settings):
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
-        settings=mock_settings,
+        settings=None,
     )
 
     result = find_exit(
@@ -143,7 +134,6 @@ def test_find_exit_settlement(ingame_trades, game_times, mock_settings):
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
         sport="nba",
-        settings=mock_settings,
     )
 
     assert result["status"] == "filled"
@@ -152,7 +142,7 @@ def test_find_exit_settlement(ingame_trades, game_times, mock_settings):
     assert result["hold_seconds"] > 0
 
 
-def test_find_exit_reversion_to_open(ingame_trades, game_times, mock_settings):
+def test_find_exit_reversion_to_open(ingame_trades, game_times):
     """Test reversion to open exit."""
     entry_result = find_dip_entry(
         ingame_trades,
@@ -160,7 +150,7 @@ def test_find_exit_reversion_to_open(ingame_trades, game_times, mock_settings):
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
-        settings=mock_settings,
+        settings=None,
     )
 
     result = find_exit(
@@ -173,7 +163,6 @@ def test_find_exit_reversion_to_open(ingame_trades, game_times, mock_settings):
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
         sport="nba",
-        settings=mock_settings,
     )
 
     assert result["status"] == "filled"
@@ -181,7 +170,7 @@ def test_find_exit_reversion_to_open(ingame_trades, game_times, mock_settings):
     assert result["exit_type"] == "reversion_to_open"
 
 
-def test_find_exit_fixed_profit(ingame_trades, game_times, mock_settings):
+def test_find_exit_fixed_profit(ingame_trades, game_times):
     """Test fixed profit exit."""
     entry_result = find_dip_entry(
         ingame_trades,
@@ -189,7 +178,7 @@ def test_find_exit_fixed_profit(ingame_trades, game_times, mock_settings):
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
-        settings=mock_settings,
+        settings=None,
     )
 
     result = find_exit(
@@ -202,7 +191,6 @@ def test_find_exit_fixed_profit(ingame_trades, game_times, mock_settings):
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
         sport="nba",
-        settings=mock_settings,
     )
 
     assert result["status"] == "filled"
@@ -211,72 +199,15 @@ def test_find_exit_fixed_profit(ingame_trades, game_times, mock_settings):
     assert result["exit_price"] == 0.87
 
 
-def test_find_exit_time_based_nba(ingame_trades, game_times, mock_settings):
-    """Test time-based quarter exit for NBA."""
+def test_find_exit_not_triggered(ingame_trades, game_times):
+    """Test forced_close when exit condition is never met but in-game trades exist."""
     entry_result = find_dip_entry(
         ingame_trades,
         open_price=0.92,
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
-        settings=mock_settings,
-    )
-
-    result = find_exit(
-        ingame_trades,
-        entry_time=entry_result["entry_time"],
-        entry_price=entry_result["entry_price"],
-        exit_type="time_based_quarter",
-        exit_param=1,  # End of Q1 = 12 minutes
-        open_price=0.92,
-        tipoff_time=game_times["tipoff"],
-        game_end=game_times["game_end"],
-        sport="nba",
-        settings=mock_settings,
-    )
-
-    assert result["status"] == "filled"
-    # Q1 ends at 12 min, latest trade <= 12 min is at 10 min with price 0.92
-    assert result["exit_price"] == 0.92
-
-
-def test_find_exit_time_based_non_nba(ingame_trades, game_times, mock_settings):
-    """Test that time-based exit returns not_applicable for non-NBA."""
-    entry_result = find_dip_entry(
-        ingame_trades,
-        open_price=0.92,
-        dip_threshold_cents=10,
-        tipoff_time=game_times["tipoff"],
-        game_end=game_times["game_end"],
-        settings=mock_settings,
-    )
-
-    result = find_exit(
-        ingame_trades,
-        entry_time=entry_result["entry_time"],
-        entry_price=entry_result["entry_price"],
-        exit_type="time_based_quarter",
-        exit_param=1,
-        open_price=0.92,
-        tipoff_time=game_times["tipoff"],
-        game_end=game_times["game_end"],
-        sport="nhl",  # Not NBA
-        settings=mock_settings,
-    )
-
-    assert result["status"] == "time_based_not_applicable"
-    assert result["exit_time"] is None
-
-
-def test_find_exit_not_triggered(ingame_trades, game_times, mock_settings):
-    """Test when exit condition is never met."""
-    entry_result = find_dip_entry(
-        ingame_trades,
-        open_price=0.92,
-        dip_threshold_cents=10,
-        tipoff_time=game_times["tipoff"],
-        game_end=game_times["game_end"],
-        settings=mock_settings,
+        settings=None,
     )
 
     result = find_exit(
@@ -284,19 +215,85 @@ def test_find_exit_not_triggered(ingame_trades, game_times, mock_settings):
         entry_time=entry_result["entry_time"],
         entry_price=entry_result["entry_price"],
         exit_type="fixed_profit",
-        exit_param=20,  # Would need 0.20 profit, but max is ~0.13
+        exit_param=20,  # Would need 0.20 profit — unreachable
         open_price=0.92,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
         sport="nba",
-        settings=mock_settings,
+    )
+
+    # Post-entry trades exist but target never met → forced_close at last in-game price
+    assert result["status"] == "forced_close"
+    assert result["exit_price"] is not None
+    assert result["exit_price"] == 0.94  # Last in-game trade after entry
+
+
+def test_find_exit_forced_close_no_post_trades(base_time, game_times):
+    """Test not_triggered when no in-game trades exist after entry_time."""
+    # All trades at or before the entry time
+    early_trades = pd.DataFrame(
+        {
+            "datetime": [
+                base_time + timedelta(minutes=1),
+                base_time + timedelta(minutes=2),
+                base_time + timedelta(minutes=3),
+            ],
+            "price": [0.92, 0.91, 0.81],
+        }
+    )
+    entry_time = base_time + timedelta(minutes=3)
+
+    result = find_exit(
+        early_trades,
+        entry_time=entry_time,
+        entry_price=0.81,
+        exit_type="reversion_to_open",
+        exit_param=0,
+        open_price=0.92,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        sport="nba",
     )
 
     assert result["status"] == "not_triggered"
-    assert result["exit_time"] is None
+    assert result["exit_price"] is None
 
 
-def test_find_exit_reversion_partial(ingame_trades, game_times, mock_settings):
+def test_find_exit_post_game_trade_excluded(base_time, game_times):
+    """Test that trades after game_end do not trigger non-settlement exits."""
+    trades = pd.DataFrame(
+        {
+            "datetime": [
+                base_time + timedelta(minutes=3),   # Entry trade (dip)
+                base_time + timedelta(minutes=4),   # Still below open
+                # Post-settlement spike — must be excluded
+                game_times["game_end"] + timedelta(minutes=5),
+            ],
+            "price": [0.81, 0.82, 1.0],
+        }
+    )
+    entry_time = base_time + timedelta(minutes=3)
+
+    result = find_exit(
+        trades,
+        entry_time=entry_time,
+        entry_price=0.81,
+        exit_type="reversion_to_open",
+        exit_param=0,
+        open_price=0.92,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        sport="nba",
+    )
+
+    # 1.0 post-game spike is excluded; 0.82 in-game trade doesn't reach open (0.92)
+    # → forced_close at last in-game price 0.82
+    assert result["exit_price"] != 1.0
+    assert result["status"] == "forced_close"
+    assert result["exit_price"] == 0.82
+
+
+def test_find_exit_reversion_partial(ingame_trades, game_times):
     """Test reversion to partial level."""
     entry_result = find_dip_entry(
         ingame_trades,
@@ -304,7 +301,7 @@ def test_find_exit_reversion_partial(ingame_trades, game_times, mock_settings):
         dip_threshold_cents=10,
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
-        settings=mock_settings,
+        settings=None,
     )
 
     result = find_exit(
@@ -317,7 +314,6 @@ def test_find_exit_reversion_partial(ingame_trades, game_times, mock_settings):
         tipoff_time=game_times["tipoff"],
         game_end=game_times["game_end"],
         sport="nba",
-        settings=mock_settings,
     )
 
     assert result["status"] == "filled"

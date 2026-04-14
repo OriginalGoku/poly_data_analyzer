@@ -64,14 +64,12 @@ def find_exit(
         "reversion_to_open",
         "reversion_to_partial",
         "fixed_profit",
-        "time_based_quarter",
     ],
     exit_param: int,
     open_price: float,
     tipoff_time: datetime,
     game_end: datetime,
     sport: str,
-    settings,
 ) -> Dict:
     """Find exit condition based on exit_type.
 
@@ -80,23 +78,22 @@ def find_exit(
         entry_time: Entry trade time
         entry_price: Entry price (0-1 range)
         exit_type: Exit strategy type
-        exit_param: Exit parameter (cents for reversion_to_partial/fixed_profit,
-                   quarter number for time_based_quarter)
+        exit_param: Exit parameter (cents for reversion_to_partial/fixed_profit)
         open_price: Original open price (for reversion_to_open)
         tipoff_time: Game start time
         game_end: Game end time
         sport: Sport code (e.g., "nba", "nhl", "mlb")
-        settings: ChartSettings instance with sport durations
 
     Returns:
         Dict with keys: exit_time, exit_price, exit_type, hold_seconds, status.
     """
-    post_entry = trades_df[trades_df["datetime"] > entry_time].copy()
+    post_entry = trades_df[
+        (trades_df["datetime"] > entry_time) & (trades_df["datetime"] < game_end)
+    ].copy()
 
     if exit_type == "settlement":
-        # Exit at last in-game trade before game_end
-        in_game_post = post_entry[post_entry["datetime"] < game_end]
-        if in_game_post.empty:
+        # post_entry is already bounded to in-game trades (< game_end)
+        if post_entry.empty:
             return {
                 "exit_time": None,
                 "exit_price": None,
@@ -104,7 +101,7 @@ def find_exit(
                 "hold_seconds": 0,
                 "status": "not_triggered",
             }
-        exit_trade = in_game_post.iloc[-1]
+        exit_trade = post_entry.iloc[-1]
         return {
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
@@ -117,12 +114,21 @@ def find_exit(
         # Exit at first trade >= open_price
         revert = post_entry[post_entry["price"] >= open_price]
         if revert.empty:
+            if post_entry.empty:
+                return {
+                    "exit_time": None,
+                    "exit_price": None,
+                    "exit_type": "reversion_to_open",
+                    "hold_seconds": 0,
+                    "status": "not_triggered",
+                }
+            exit_trade = post_entry.iloc[-1]
             return {
-                "exit_time": None,
-                "exit_price": None,
+                "exit_time": exit_trade["datetime"],
+                "exit_price": exit_trade["price"],
                 "exit_type": "reversion_to_open",
-                "hold_seconds": 0,
-                "status": "not_triggered",
+                "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
+                "status": "forced_close",
             }
         exit_trade = revert.iloc[0]
         return {
@@ -138,12 +144,21 @@ def find_exit(
         partial_target = open_price - (exit_param / 100.0)
         revert = post_entry[post_entry["price"] >= partial_target]
         if revert.empty:
+            if post_entry.empty:
+                return {
+                    "exit_time": None,
+                    "exit_price": None,
+                    "exit_type": "reversion_to_partial",
+                    "hold_seconds": 0,
+                    "status": "not_triggered",
+                }
+            exit_trade = post_entry.iloc[-1]
             return {
-                "exit_time": None,
-                "exit_price": None,
+                "exit_time": exit_trade["datetime"],
+                "exit_price": exit_trade["price"],
                 "exit_type": "reversion_to_partial",
-                "hold_seconds": 0,
-                "status": "not_triggered",
+                "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
+                "status": "forced_close",
             }
         exit_trade = revert.iloc[0]
         return {
@@ -159,55 +174,27 @@ def find_exit(
         profit_target = entry_price + (exit_param / 100.0)
         profit = post_entry[post_entry["price"] >= profit_target]
         if profit.empty:
+            if post_entry.empty:
+                return {
+                    "exit_time": None,
+                    "exit_price": None,
+                    "exit_type": "fixed_profit",
+                    "hold_seconds": 0,
+                    "status": "not_triggered",
+                }
+            exit_trade = post_entry.iloc[-1]
             return {
-                "exit_time": None,
-                "exit_price": None,
+                "exit_time": exit_trade["datetime"],
+                "exit_price": exit_trade["price"],
                 "exit_type": "fixed_profit",
-                "hold_seconds": 0,
-                "status": "not_triggered",
+                "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
+                "status": "forced_close",
             }
         exit_trade = profit.iloc[0]
         return {
             "exit_time": exit_trade["datetime"],
             "exit_price": exit_trade["price"],
             "exit_type": "fixed_profit",
-            "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
-            "status": "filled",
-        }
-
-    elif exit_type == "time_based_quarter":
-        # NBA only: exit at quarter-end (NBA quarter = 12 min)
-        if sport != "nba":
-            return {
-                "exit_time": None,
-                "exit_price": None,
-                "exit_type": "time_based_quarter",
-                "hold_seconds": 0,
-                "status": "time_based_not_applicable",
-            }
-
-        quarter_num = exit_param
-        quarter_duration_min = settings.nba_quarter_duration_min
-        quarter_end = tipoff_time + pd.Timedelta(
-            minutes=quarter_num * quarter_duration_min
-        )
-
-        # Find last trade at or before quarter_end
-        valid = post_entry[post_entry["datetime"] <= quarter_end]
-        if valid.empty:
-            return {
-                "exit_time": None,
-                "exit_price": None,
-                "exit_type": "time_based_quarter",
-                "hold_seconds": 0,
-                "status": "not_triggered",
-            }
-
-        exit_trade = valid.iloc[-1]
-        return {
-            "exit_time": exit_trade["datetime"],
-            "exit_price": exit_trade["price"],
-            "exit_type": "time_based_quarter",
             "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
             "status": "filled",
         }

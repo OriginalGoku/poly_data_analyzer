@@ -22,8 +22,9 @@ def test_compute_pnl_profitable_with_taker_fee():
     assert result["entry_price"] == 0.80
     assert result["exit_price"] == 0.82
     assert abs(result["gross_pnl_cents"] - 2.0) < 0.01  # (0.82 - 0.80) * 100
-    # Fee: 0.82 * 0.002 * 100 = 0.164 cents
-    assert abs(result["net_pnl_cents"] - 1.836) < 0.01
+    # Fee: (0.80 + 0.82) * 0.002 * 100 = 0.324 cents (two-sided)
+    assert abs(result["fee_cost_cents"] - 0.324) < 0.001
+    assert abs(result["net_pnl_cents"] - 1.676) < 0.01
     assert result["roi_pct"] > 0
     assert result["hold_seconds"] == 60
     assert result["settlement_occurred"] is True
@@ -46,6 +47,8 @@ def test_compute_pnl_loss():
     )
 
     assert abs(result["gross_pnl_cents"] - (-2.0)) < 0.01  # (0.83 - 0.85) * 100
+    # Fee: (0.85 + 0.83) * 0.002 * 100 = 0.336 cents
+    assert abs(result["fee_cost_cents"] - 0.336) < 0.001
     assert result["net_pnl_cents"] < -2.0  # Worse after fees
     assert result["roi_pct"] < 0
     assert abs(result["true_pnl_cents"] - (-85.0)) < 0.01  # (0.0 - 0.85) * 100

@@ -18,6 +18,7 @@ def baseline_buy_at_open(
     fee_pct: float,
     settings,
     open_favorite_team: str = None,
+    fee_model: str = "taker",
 ) -> Dict:
     """Baseline: buy at open, hold to settlement.
 
@@ -83,7 +84,7 @@ def baseline_buy_at_open(
         entry=entry,
         exit_=exit_,
         settlement=settlement,
-        fee_model="taker",
+        fee_model=fee_model,
         fee_pct=fee_pct,
         settings=settings,
     )
@@ -100,6 +101,7 @@ def baseline_buy_at_tipoff(
     fee_pct: float,
     settings,
     open_favorite_team: str = None,
+    fee_model: str = "taker",
 ) -> Dict:
     """Baseline: buy at tipoff, hold to settlement.
 
@@ -165,7 +167,7 @@ def baseline_buy_at_tipoff(
         entry=entry,
         exit_=exit_,
         settlement=settlement,
-        fee_model="taker",
+        fee_model=fee_model,
         fee_pct=fee_pct,
         settings=settings,
     )
@@ -181,6 +183,7 @@ def baseline_buy_first_ingame(
     fee_pct: float,
     settings,
     open_favorite_team: str = None,
+    fee_model: str = "taker",
 ) -> Dict:
     """Baseline: buy at first in-game trade, hold to settlement.
 
@@ -250,7 +253,7 @@ def baseline_buy_first_ingame(
         entry=entry,
         exit_=exit_,
         settlement=settlement,
-        fee_model="taker",
+        fee_model=fee_model,
         fee_pct=fee_pct,
         settings=settings,
     )

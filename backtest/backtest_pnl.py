@@ -38,7 +38,7 @@ def compute_trade_pnl(
     # Compute gross and net PnL (in cents)
     if exit_price is not None:
         gross_pnl_cents = (exit_price - entry_price) * 100
-        fee_cost = exit_price * fee_pct * 100
+        fee_cost = (entry_price + exit_price) * fee_pct * 100
         net_pnl_cents = gross_pnl_cents - fee_cost
         roi_pct = (net_pnl_cents / (entry_price * 100)) if entry_price > 0 else 0
     else:

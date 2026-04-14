@@ -215,7 +215,6 @@ def backtest_single_game(
         tipoff_time=tipoff_time,
         game_end=game_end,
         sport=sport,
-        settings=None,
     )
 
     # Resolve settlement
@@ -265,6 +264,7 @@ def backtest_single_game(
         fee_pct=config.fee_pct,
         settings=None,
         open_favorite_team=open_favorite_team,
+        fee_model=config.fee_model,
     )
 
     baseline_tipoff = baseline_buy_at_tipoff(
@@ -278,6 +278,7 @@ def backtest_single_game(
         fee_pct=config.fee_pct,
         settings=None,
         open_favorite_team=open_favorite_team,
+        fee_model=config.fee_model,
     )
 
     baseline_first = baseline_buy_first_ingame(
@@ -290,6 +291,7 @@ def backtest_single_game(
         fee_pct=config.fee_pct,
         settings=None,
         open_favorite_team=open_favorite_team,
+        fee_model=config.fee_model,
     )
 
     return {

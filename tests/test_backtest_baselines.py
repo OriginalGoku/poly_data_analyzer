@@ -182,3 +182,22 @@ def test_baseline_roi_comparison(game_data):
     # 5-cent gain on 90-cent entry = 5.56% ROI (roughly)
     assert result_open["roi_pct"] > 0
     assert result_open["gross_pnl_cents"] > 0
+
+
+def test_baseline_buy_at_open_maker_fee(game_data):
+    """Test buy-at-open with maker fee model → zero fee cost."""
+    result = baseline_buy_at_open(
+        open_price=0.92,
+        trades_df=game_data["trades_df"],
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.0,
+        settings=None,
+        fee_model="maker",
+    )
+
+    assert result["fee_cost_cents"] == 0.0
+    assert result["gross_pnl_cents"] == result["net_pnl_cents"]

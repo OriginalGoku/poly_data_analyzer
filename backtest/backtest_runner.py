@@ -76,11 +76,8 @@ def run_backtest_grid(
                     dip_anchor=config.dip_anchor,
                     exit_type=config.exit_type,
                     profit_target=config.profit_target,
-                    time_exit_checkpoint=config.time_exit_checkpoint,
                     fee_model=config.fee_model,
                     sport_filter=config.sport_filter,
-                    nba_quarter_duration_min=config.nba_quarter_duration_min,
-                    nhl_period_duration_min=config.nhl_period_duration_min,
                     taker_fee_pct=config.taker_fee_pct,
                     maker_fee_pct=config.maker_fee_pct,
                 )
@@ -188,7 +185,10 @@ def run_backtest_grid(
                             "games_with_entry": len(trades_with_entry),
                             "games_settled": len(trades_settled),
                             "total_trades": len(trades_with_entry),
-                            "gross_roi_mean": trades_with_entry["roi_pct"].mean() if len(trades_with_entry) > 0 else 0,
+                            "gross_roi_mean": (
+                                (trades_with_entry["gross_pnl_cents"] / (trades_with_entry["entry_price"] * 100)).mean()
+                                if len(trades_with_entry) > 0 else 0
+                            ),
                             "net_roi_mean": trades_with_entry["roi_pct"].mean() if len(trades_with_entry) > 0 else 0,
                             "win_rate": (
                                 (filtered["true_pnl_cents"] > 0).sum() / len(trades_settled)
