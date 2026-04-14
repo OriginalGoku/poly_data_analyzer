@@ -165,13 +165,12 @@ def _filter_flash_crashes(
     """Remove flash-crash outlier trades using bidirectional median comparison.
 
     A trade is marked as an outlier if BOTH:
-      1. |price - median(previous N trades for same asset)| > backward_threshold
-      2. |price - median(next M trades at least T seconds ahead)| > forward_threshold
+      1. |price - backward_median| / backward_median > backward_threshold (%)
+      2. |price - forward_median| / forward_median > forward_threshold (%)
 
-    The forward window skips trades within T seconds of the current trade so that
-    a cluster of flash-crash fills (many small fills in the same second) doesn't
-    dominate the forward median. This preserves legitimate regime shifts while
-    removing transient order-book sweeps.
+    Thresholds are percentage-based so they scale across the full price range
+    (0-1). The forward window skips trades within T seconds of the current trade
+    so that a cluster of flash-crash fills doesn't dominate the forward median.
     """
     if settings is None:
         settings = {}
@@ -203,9 +202,9 @@ def _filter_flash_crashes(
                 continue
 
             backward_med = prices.rolling(window=bw, min_periods=1).median().shift(1)
-            backward_dev = (prices - backward_med).abs()
+            backward_pct_dev = ((prices - backward_med) / backward_med).abs()
 
-            backward_suspects = backward_dev > bt
+            backward_suspects = backward_pct_dev > bt
             if not backward_suspects.any():
                 continue
 
@@ -217,7 +216,8 @@ def _filter_flash_crashes(
                     continue
                 forward_prices = future["price"].astype(float).iloc[:fw]
                 fwd_med = forward_prices.median()
-                if abs(prices.loc[idx] - fwd_med) > ft:
+                fwd_pct_dev = abs(prices.loc[idx] - fwd_med) / fwd_med if fwd_med > 0 else 0
+                if fwd_pct_dev > ft:
                     outlier_mask.loc[idx] = True
 
         n_removed = outlier_mask.sum()
