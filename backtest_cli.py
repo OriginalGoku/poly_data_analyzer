@@ -10,6 +10,7 @@ from tqdm import tqdm
 from backtest.backtest_config import DipBuyBacktestConfig
 from backtest.backtest_export import export_backtest_results
 from backtest.backtest_runner import run_backtest_grid
+from settings import load_chart_settings
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +43,11 @@ def main():
         default="taker",
         help="Comma-separated fee models (taker/maker)",
     )
+    parser.add_argument(
+        "--dip-anchors",
+        default="open",
+        help="Comma-separated dip anchors (open/tipoff)",
+    )
     parser.add_argument("--sport", default="nba", help="Sport filter (nba/nhl/mlb/all)")
     parser.add_argument("--output", default="backtest_results", help="Output directory")
     parser.add_argument("--data-dir", default="data", help="Data directory")
@@ -54,18 +60,21 @@ def main():
     dip_thresholds = tuple(int(x.strip()) for x in args.dip_thresholds.split(","))
     exit_types = [x.strip() for x in args.exit_types.split(",")]
     fee_models = [x.strip() for x in args.fee_models.split(",")]
+    dip_anchors = [x.strip() for x in args.dip_anchors.split(",")]
 
     # Build configs
     configs = []
     for exit_type in exit_types:
         for fee_model in fee_models:
-            config = DipBuyBacktestConfig(
-                dip_thresholds=dip_thresholds,
-                exit_type=exit_type,
-                fee_model=fee_model,
-                sport_filter=args.sport,
-            )
-            configs.append(config)
+            for dip_anchor in dip_anchors:
+                config = DipBuyBacktestConfig(
+                    dip_thresholds=dip_thresholds,
+                    dip_anchor=dip_anchor,
+                    exit_type=exit_type,
+                    fee_model=fee_model,
+                    sport_filter=args.sport,
+                )
+                configs.append(config)
 
     logger.info(f"Running backtest from {args.start_date} to {args.end_date}")
     logger.info(f"Configs: {len(configs)} (exits: {set(c.exit_type for c in configs)}, fees: {set(c.fee_model for c in configs)})")
@@ -73,8 +82,14 @@ def main():
 
     # Create dated subfolder for results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(args.output) / timestamp
+    sport_tag = args.sport if args.sport != "all" else "all"
+    folder_name = f"{args.start_date}_{args.end_date}_{sport_tag}_{timestamp}"
+    output_dir = Path(args.output) / folder_name
     logger.info(f"Results will be saved to: {output_dir}/")
+
+    # Load chart settings for consistent open price computation
+    settings_path = Path(__file__).parent / "chart_settings.json"
+    chart_settings = load_chart_settings(settings_path).to_dict()
 
     # Run grid with progress bar
     logger.info("Loading universe and running backtests...")
@@ -84,6 +99,9 @@ def main():
         configs=configs,
         data_dir=args.data_dir,
         verbose=True,
+        pregame_min_cum_vol=chart_settings.get("pregame_min_cum_vol", 5000),
+        open_anchor_stat=chart_settings.get("open_anchor_stat", "vwap"),
+        open_anchor_window_min=chart_settings.get("open_anchor_window_min", 5),
     )
 
     logger.info(f"\n✓ Completed {len(per_game_df)} games")

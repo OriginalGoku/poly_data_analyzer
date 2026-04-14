@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, dash_table, dcc, html, no_update
+from urllib.parse import parse_qs
+
+from dash import Input, Output, State, dash_table, dcc, html, no_update
 from dash.dash_table.Format import Format, Group, Scheme
 
 from analytics import ACTIVE_INTERPRETABLE_BAND_LABELS, build_analysis_summary, get_analytics_view
@@ -183,11 +185,21 @@ class MainDashboardPage:
     def register_callbacks(self, app):
         settings_dict = self.settings.to_dict()
 
-        @app.callback(Output("sport-picker", "options"), Output("sport-picker", "value"), Input("sport-picker", "id"))
-        def populate_sports(_):
+        @app.callback(
+            Output("sport-picker", "options"),
+            Output("sport-picker", "value"),
+            Input("sport-picker", "id"),
+            State("url", "search"),
+        )
+        def populate_sports(_, search):
             sports = get_available_sports_from_manifests(self.data_dir)
             options = [{"label": sport.upper(), "value": sport} for sport in sports]
             default = "nba" if "nba" in sports else (sports[0] if sports else None)
+            if search:
+                qs = parse_qs(search.lstrip("?"))
+                bt_sport = qs.get("bt_sport", [None])[0]
+                if bt_sport and bt_sport in sports:
+                    default = bt_sport
             return options, default
 
         @app.callback(
@@ -198,8 +210,9 @@ class MainDashboardPage:
             Input("sport-picker", "value"),
             Input("price-quality-picker", "value"),
             Input("bucket-picker", "value"),
+            State("url", "search"),
         )
-        def populate_games(start_date, end_date, sport, price_quality, bucket):
+        def populate_games(start_date, end_date, sport, price_quality, bucket, search):
             if not start_date or not end_date or not sport:
                 return [], None
             start_date, end_date = _normalize_date_range(start_date, end_date)
@@ -223,6 +236,14 @@ class MainDashboardPage:
                 for _, row in analytics.iterrows()
             ]
             value = options[0]["value"] if options else None
+            # Deep-link from backtest results page
+            if search:
+                qs = parse_qs(search.lstrip("?"))
+                bt_game = qs.get("bt_game", [None])[0]
+                if bt_game:
+                    option_values = {o["value"] for o in options}
+                    if bt_game in option_values:
+                        value = bt_game
             return options, value
 
         @app.callback(
@@ -232,13 +253,20 @@ class MainDashboardPage:
             Output("end-date-picker", "value"),
             Input("sport-picker", "value"),
             Input("price-quality-picker", "value"),
+            State("url", "search"),
         )
-        def populate_dates(sport, price_quality):
+        def populate_dates(sport, price_quality, search):
             if not sport:
                 return [], None, [], None
             dates = get_dates_for_sport(self.data_dir, sport)
             options = [{"label": date, "value": date} for date in dates]
             start, end = _default_date_window(dates)
+            if search:
+                qs = parse_qs(search.lstrip("?"))
+                bt_date = qs.get("bt_date", [None])[0]
+                if bt_date and bt_date in dates:
+                    start = bt_date
+                    end = bt_date
             return options, start, options, end
 
         @app.callback(

@@ -7,6 +7,8 @@ from pathlib import Path
 from dash import Dash, Input, Output, dcc, html
 
 from nba_analysis import NBAOpenTipoffAnalysisService
+from pages.backtest_results_page import BacktestResultsPage
+from pages.backtest_runner_page import BacktestRunnerPage
 from pages.main_dashboard_page import MainDashboardPage, _build_analysis_card, _build_whale_card
 from pages.nba_open_tipoff_page import NBAOpenTipoffAnalysisPage
 from settings import load_chart_settings
@@ -23,9 +25,13 @@ nba_analysis_page = NBAOpenTipoffAnalysisPage(
     analysis_service=NBAOpenTipoffAnalysisService(DATA_DIR, SETTINGS),
     settings=SETTINGS,
 )
+backtest_page = BacktestResultsPage()
+backtest_runner_page = BacktestRunnerPage()
 PAGES = {
     main_page.route: main_page,
     nba_analysis_page.route: nba_analysis_page,
+    backtest_page.route: backtest_page,
+    backtest_runner_page.route: backtest_runner_page,
 }
 
 
@@ -46,6 +52,8 @@ def render_page(pathname):
 
 main_page.register_callbacks(app)
 nba_analysis_page.register_callbacks(app)
+backtest_page.register_callbacks(app)
+backtest_runner_page.register_callbacks(app)
 
 
 if __name__ == "__main__":

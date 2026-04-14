@@ -17,6 +17,7 @@ def baseline_buy_at_open(
     sport: str,
     fee_pct: float,
     settings,
+    open_favorite_team: str = None,
 ) -> Dict:
     """Baseline: buy at open, hold to settlement.
 
@@ -73,7 +74,10 @@ def baseline_buy_at_open(
             "hold_seconds": 0,
         }
 
-    settlement = resolve_settlement(manifest, events, trades_df, game_end, sport, settings)
+    settlement = resolve_settlement(
+        manifest, events, trades_df, game_end, sport, settings,
+        open_favorite_team=open_favorite_team,
+    )
 
     return compute_trade_pnl(
         entry=entry,
@@ -95,6 +99,7 @@ def baseline_buy_at_tipoff(
     sport: str,
     fee_pct: float,
     settings,
+    open_favorite_team: str = None,
 ) -> Dict:
     """Baseline: buy at tipoff, hold to settlement.
 
@@ -151,7 +156,10 @@ def baseline_buy_at_tipoff(
             "hold_seconds": 0,
         }
 
-    settlement = resolve_settlement(manifest, events, trades_df, game_end, sport, settings)
+    settlement = resolve_settlement(
+        manifest, events, trades_df, game_end, sport, settings,
+        open_favorite_team=open_favorite_team,
+    )
 
     return compute_trade_pnl(
         entry=entry,
@@ -172,6 +180,7 @@ def baseline_buy_first_ingame(
     sport: str,
     fee_pct: float,
     settings,
+    open_favorite_team: str = None,
 ) -> Dict:
     """Baseline: buy at first in-game trade, hold to settlement.
 
@@ -232,7 +241,10 @@ def baseline_buy_first_ingame(
         "hold_seconds": int((exit_trade["datetime"] - entry_trade["datetime"]).total_seconds()),
     }
 
-    settlement = resolve_settlement(manifest, events, trades_df, game_end, sport, settings)
+    settlement = resolve_settlement(
+        manifest, events, trades_df, game_end, sport, settings,
+        open_favorite_team=open_favorite_team,
+    )
 
     return compute_trade_pnl(
         entry=entry,

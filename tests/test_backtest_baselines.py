@@ -41,7 +41,8 @@ def game_data():
     manifest = {
         "match_id": "nba_game_1",
         "sport": "nba",
-        "open_favorite_token": 0,
+        "away_team": "LAL",
+        "home_team": "BOS",
     }
 
     return {
@@ -66,6 +67,7 @@ def test_baseline_buy_at_open(game_data):
         sport="nba",
         fee_pct=0.002,
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert result["entry_price"] == 0.92
@@ -86,6 +88,7 @@ def test_baseline_buy_at_tipoff(game_data):
         sport="nba",
         fee_pct=0.002,
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert result["entry_price"] == 0.91
@@ -105,6 +108,7 @@ def test_baseline_buy_first_ingame(game_data):
         sport="nba",
         fee_pct=0.002,
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert result["entry_price"] == 0.92  # First in-game trade

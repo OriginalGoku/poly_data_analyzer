@@ -99,6 +99,7 @@ def export_backtest_results(
         "# Backtest Results Schema\n\n",
         "## Aggregated Results (results_aggregated.csv)\n",
         "- **dip_threshold**: Dip threshold in cents\n",
+        "- **dip_anchor**: Price anchor for dip detection (open/tipoff)\n",
         "- **exit_type**: Exit strategy type\n",
         "- **fee_model**: Fee model (taker/maker)\n",
         "- **total_games**: Total games in universe for this combo\n",
@@ -115,6 +116,7 @@ def export_backtest_results(
         "- **date**: Game date (YYYY-MM-DD)\n",
         "- **sport**: Sport code (nba, nhl, mlb)\n",
         "- **entry_price**: Entry price (0-1 range)\n",
+        "- **entry_time**: UTC timestamp of dip entry trade (ISO 8601)\n",
         "- **exit_price**: Exit price (or None if not triggered)\n",
         "- **gross_pnl_cents**: Gross profit/loss in cents\n",
         "- **net_pnl_cents**: Net PnL after fees\n",
@@ -126,6 +128,7 @@ def export_backtest_results(
         "- **baseline_buy_at_open_roi**: Baseline ROI for buy-at-open\n",
         "- **baseline_buy_at_tip_roi**: Baseline ROI for buy-at-tipoff\n",
         "- **baseline_buy_first_ingame_roi**: Baseline ROI for buy-first-trade\n",
+        "- **max_drawdown_cents**: Maximum adverse price move from entry (in cents)\n",
         "- **status**: Trade status (filled, not_triggered, etc.)\n",
     ]
 

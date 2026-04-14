@@ -18,6 +18,7 @@ class DipBuyBacktestConfig:
         sport_filter: "nba", "nhl", "mlb", or "all"
     """
     dip_thresholds: Tuple[int, ...] = (10, 15, 20)
+    dip_anchor: Literal["open", "tipoff"] = "open"
     exit_type: Literal["settlement", "reversion_to_open", "reversion_to_partial",
                        "fixed_profit", "time_based_quarter"] = "settlement"
     profit_target: int = 5  # cents, for reversion_to_partial and fixed_profit

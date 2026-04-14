@@ -10,7 +10,8 @@ def nba_manifest():
     return {
         "match_id": "nba_game_1",
         "sport": "nba",
-        "open_favorite_token": 0,  # Away team is favorite
+        "away_team": "LAL",
+        "home_team": "BOS",
     }
 
 
@@ -67,6 +68,7 @@ def test_resolve_settlement_away_wins(nba_manifest, nba_events_away_wins):
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="LAL",  # Away team is favorite
     )
 
     assert settled is True
@@ -83,6 +85,7 @@ def test_resolve_settlement_home_wins(nba_manifest, nba_events_home_wins):
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="LAL",  # Away team is favorite
     )
 
     assert settled is True
@@ -99,6 +102,7 @@ def test_resolve_settlement_no_events(nba_manifest):
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert settled is False
@@ -115,6 +119,7 @@ def test_resolve_settlement_none_events(nba_manifest):
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert settled is False
@@ -146,6 +151,7 @@ def test_resolve_settlement_no_final_score(nba_manifest):
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert settled is False
@@ -157,7 +163,8 @@ def test_resolve_settlement_home_favorite():
     manifest = {
         "match_id": "nba_game_2",
         "sport": "nba",
-        "open_favorite_token": 1,  # Home team is favorite
+        "away_team": "LAL",
+        "home_team": "BOS",
     }
 
     events = [
@@ -176,10 +183,71 @@ def test_resolve_settlement_home_favorite():
         game_end=None,
         sport="nba",
         settings=None,
+        open_favorite_team="BOS",  # Home team is favorite
     )
 
     assert settled is True
     assert payout == 1.0  # Home was favorite and won
+
+
+def test_resolve_settlement_home_favorite_loses():
+    """Test settlement when home team is favorite but loses."""
+    manifest = {
+        "match_id": "nba_game_3",
+        "sport": "nba",
+        "away_team": "LAL",
+        "home_team": "BOS",
+    }
+
+    events = [
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 110,
+            "home_score": 105,
+        },
+    ]
+
+    payout, method, settled = resolve_settlement(
+        manifest=manifest,
+        events=events,
+        trades_df=None,
+        game_end=None,
+        sport="nba",
+        settings=None,
+        open_favorite_team="BOS",  # Home team is favorite
+    )
+
+    assert settled is True
+    assert payout == 0.0  # Home was favorite but away won
+
+
+def test_resolve_settlement_overtime():
+    """Test settlement resolves from OT events (period >= 5)."""
+    manifest = {
+        "match_id": "nba_game_ot",
+        "sport": "nba",
+        "away_team": "LAL",
+        "home_team": "BOS",
+    }
+
+    events = [
+        {"period": 4, "away_score": 100, "home_score": 100},
+        {"period": 5, "away_score": 108, "home_score": 105},
+    ]
+
+    payout, method, settled = resolve_settlement(
+        manifest=manifest,
+        events=events,
+        trades_df=None,
+        game_end=None,
+        sport="nba",
+        settings=None,
+        open_favorite_team="BOS",
+    )
+
+    assert settled is True
+    assert payout == 0.0  # Home was favorite but away won in OT
 
 
 def test_resolve_settlement_unsupported_sport(nba_manifest):
@@ -198,6 +266,7 @@ def test_resolve_settlement_unsupported_sport(nba_manifest):
         game_end=None,
         sport="nhl",  # Not NBA
         settings=None,
+        open_favorite_team="LAL",
     )
 
     assert settled is False

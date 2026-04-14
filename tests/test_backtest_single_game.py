@@ -11,43 +11,59 @@ from backtest.backtest_single_game import backtest_single_game
 
 @pytest.fixture
 def mock_game_data():
-    """Create mock game data."""
+    """Create mock game data with both tokens interleaved."""
     base_time = datetime(2026, 3, 23, 19, 30, 0)
+
+    # Favorite token (LAL) trades
+    fav_times = [
+        base_time + timedelta(minutes=1),
+        base_time + timedelta(minutes=2),
+        base_time + timedelta(minutes=3),
+        base_time + timedelta(minutes=5),
+        base_time + timedelta(minutes=10),
+    ]
+    fav_prices = [0.92, 0.91, 0.81, 0.84, 0.87]
+
+    # Underdog token (BOS) trades — complement prices
+    dog_times = [
+        base_time + timedelta(minutes=1, seconds=30),
+        base_time + timedelta(minutes=2, seconds=30),
+        base_time + timedelta(minutes=4),
+        base_time + timedelta(minutes=6),
+    ]
+    dog_prices = [0.08, 0.09, 0.19, 0.16]
 
     trades_df = pd.DataFrame(
         {
-            "datetime": [
-                base_time + timedelta(minutes=1),
-                base_time + timedelta(minutes=2),
-                base_time + timedelta(minutes=3),
-                base_time + timedelta(minutes=5),
-                base_time + timedelta(minutes=10),
-            ],
-            "price": [0.92, 0.91, 0.81, 0.84, 0.87],
+            "datetime": fav_times + dog_times,
+            "price": fav_prices + dog_prices,
+            "asset": ["token_lal"] * 5 + ["token_bos"] * 4,
+            "team": ["LAL"] * 5 + ["BOS"] * 4,
         }
-    )
+    ).sort_values("datetime").reset_index(drop=True)
 
-    events = pd.DataFrame(
-        [
-            {
-                "datetime": "2026-03-23T20:30:00",
-                "period": 4,
-                "away_score": 105,
-                "home_score": 102,
-            },
-        ]
-    )
+    events = [
+        {
+            "datetime": "2026-03-23T20:30:00",
+            "period": 4,
+            "away_score": 105,
+            "home_score": 102,
+        },
+    ]
 
     manifest = {
         "match_id": "nba_game_1",
         "sport": "nba",
-        "open_favorite_token": 0,
+        "away_team": "LAL",
+        "home_team": "BOS",
+        "token_ids": ["token_lal", "token_bos"],
+        "outcomes": ["LAL", "BOS"],
         "gamma_start_time": base_time.isoformat(),
         "game_close_time": (base_time + timedelta(hours=2, minutes=30)).isoformat(),
     }
 
     return {
-        "trades": trades_df,
+        "trades_df": trades_df,
         "events": events,
         "manifest": manifest,
     }

@@ -11,6 +11,7 @@ def resolve_settlement(
     game_end,
     sport: str,
     settings,
+    open_favorite_team: Optional[str] = None,
 ) -> Tuple[Optional[float], str, bool]:
     """Resolve settlement for a game.
 
@@ -26,6 +27,7 @@ def resolve_settlement(
         game_end: Game end time
         sport: Sport code (e.g., "nba", "nhl", "mlb")
         settings: ChartSettings instance
+        open_favorite_team: Team name of the open favorite (from analytics)
 
     Returns:
         Tuple of (payout, method, settled)
@@ -39,8 +41,8 @@ def resolve_settlement(
     # Try to derive final winner from events
     # For NBA: look for final score in events
     if sport == "nba":
-        # Filter to fourth quarter events
-        final_events = [e for e in events if e.get("period") == 4]
+        # Filter to fourth quarter or later (OT periods are 5+)
+        final_events = [e for e in events if e.get("period", 0) >= 4]
         if not final_events:
             return (None, "unresolved", False)
 
@@ -57,18 +59,21 @@ def resolve_settlement(
         away_score = final_event.get("away_score", 0)
         home_score = final_event.get("home_score", 0)
 
-        # Determine winner
+        # Determine winner team name
+        away_team = manifest.get("away_team")
+        home_team = manifest.get("home_team")
+
         if away_score > home_score:
-            winner_token = 0  # Away team
+            winner_team = away_team
         elif home_score > away_score:
-            winner_token = 1  # Home team
+            winner_team = home_team
         else:
-            # Tie (shouldn't happen in NBA)
             return (None, "unresolved", False)
 
-        # Determine which token was the entry (favorite)
-        open_favorite_token = manifest.get("open_favorite_token", 0)
-        payout = 1.0 if winner_token == open_favorite_token else 0.0
+        if open_favorite_team is None or winner_team is None:
+            return (None, "unresolved", False)
+
+        payout = 1.0 if winner_team == open_favorite_team else 0.0
 
         return (payout, "event_derived", True)
 

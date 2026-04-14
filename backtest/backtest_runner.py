@@ -19,6 +19,9 @@ def run_backtest_grid(
     configs: List[DipBuyBacktestConfig],
     data_dir: str = "data",
     verbose: bool = False,
+    pregame_min_cum_vol: float = 5000,
+    open_anchor_stat: str = "vwap",
+    open_anchor_window_min: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run backtest grid across universe and configs.
 
@@ -28,6 +31,9 @@ def run_backtest_grid(
         configs: List of DipBuyBacktestConfig to test
         data_dir: Data directory root
         verbose: If True, show tqdm progress bars
+        pregame_min_cum_vol: Min cumulative pregame volume before anchoring open
+        open_anchor_stat: Aggregation method for open price (vwap/median)
+        open_anchor_window_min: Window in minutes for open anchor
 
     Returns:
         Tuple of (aggregated_df, per_game_df)
@@ -40,6 +46,9 @@ def run_backtest_grid(
         end_date=end_date,
         data_dir=data_dir,
         exclude_inferred_price_quality=False,
+        pregame_min_cum_vol=pregame_min_cum_vol,
+        open_anchor_stat=open_anchor_stat,
+        open_anchor_window_min=open_anchor_window_min,
     )
 
     all_results = []
@@ -59,16 +68,33 @@ def run_backtest_grid(
             if config.sport_filter != "all" and config.sport_filter != sport:
                 continue
 
-            # Run single-game backtest
-            result = backtest_single_game(
-                date=date,
-                match_id=match_id,
-                config=config,
-                data_dir=data_dir,
-            )
+            # Run single-game backtest for each dip threshold
+            for dip_threshold in config.dip_thresholds:
+                single_config = DipBuyBacktestConfig(
+                    dip_thresholds=(dip_threshold,),
+                    dip_anchor=config.dip_anchor,
+                    exit_type=config.exit_type,
+                    profit_target=config.profit_target,
+                    time_exit_checkpoint=config.time_exit_checkpoint,
+                    fee_model=config.fee_model,
+                    sport_filter=config.sport_filter,
+                    nba_quarter_duration_min=config.nba_quarter_duration_min,
+                    nhl_period_duration_min=config.nhl_period_duration_min,
+                    taker_fee_pct=config.taker_fee_pct,
+                    maker_fee_pct=config.maker_fee_pct,
+                )
+                result = backtest_single_game(
+                    date=date,
+                    match_id=match_id,
+                    config=single_config,
+                    data_dir=data_dir,
+                    pregame_min_cum_vol=pregame_min_cum_vol,
+                    open_anchor_stat=open_anchor_stat,
+                    open_anchor_window_min=open_anchor_window_min,
+                )
 
-            if result is not None:
-                all_results.append(result)
+                if result is not None:
+                    all_results.append(result)
 
     per_game_df = pd.DataFrame(all_results) if all_results else pd.DataFrame()
 
@@ -111,18 +137,26 @@ def run_backtest_grid(
 
     for config in configs_iter:
         for dip_threshold in config.dip_thresholds:
+            dip_anchor = config.dip_anchor
             for exit_type in [config.exit_type]:
                 for fee_model in [config.fee_model]:
                     # Filter results for this combo
+                    anchor_filter = (
+                        (per_game_df["dip_anchor"] == dip_anchor)
+                        if "dip_anchor" in per_game_df.columns
+                        else True
+                    )
                     filtered = per_game_df[
                         (per_game_df["dip_threshold"] == dip_threshold)
                         & (per_game_df["exit_type"] == exit_type)
                         & (per_game_df["fee_model"] == fee_model)
+                        & anchor_filter
                     ]
 
                     if filtered.empty:
                         aggregated.append({
                             "dip_threshold": dip_threshold,
+                            "dip_anchor": dip_anchor,
                             "exit_type": exit_type,
                             "fee_model": fee_model,
                             "total_games": 0,
@@ -145,6 +179,7 @@ def run_backtest_grid(
 
                         aggregated.append({
                             "dip_threshold": dip_threshold,
+                            "dip_anchor": dip_anchor,
                             "exit_type": exit_type,
                             "fee_model": fee_model,
                             "total_games": len(filtered),
@@ -160,6 +195,7 @@ def run_backtest_grid(
                             ),
                             "avg_entry_price": trades_with_entry["entry_price"].mean() if len(trades_with_entry) > 0 else 0,
                             "avg_hold_minutes": (trades_with_entry["hold_seconds"].mean() / 60) if len(trades_with_entry) > 0 else 0,
+                            "avg_max_drawdown_cents": (trades_with_entry["max_drawdown_cents"].mean() if "max_drawdown_cents" in trades_with_entry.columns and len(trades_with_entry) > 0 else 0),
                         })
 
     aggregated_df = pd.DataFrame(aggregated)
