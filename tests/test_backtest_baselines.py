@@ -201,3 +201,73 @@ def test_baseline_buy_at_open_maker_fee(game_data):
 
     assert result["fee_cost_cents"] == 0.0
     assert result["gross_pnl_cents"] == result["net_pnl_cents"]
+
+
+def test_baseline_buy_at_tipoff_no_trades(game_data):
+    """Test buy-at-tipoff returns zero-PnL dict when trades_df is empty."""
+    result = baseline_buy_at_tipoff(
+        tipoff_price=0.91,
+        trades_df=pd.DataFrame({"datetime": [], "price": []}),
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.002,
+        settings=None,
+    )
+
+    assert result["entry_price"] == 0.91
+    assert result["exit_price"] is None
+    assert result["hold_seconds"] == 0
+    assert result["gross_pnl_cents"] == 0
+    assert result["net_pnl_cents"] == 0
+
+
+def test_baseline_buy_at_tipoff_maker_fee(game_data):
+    """Test buy-at-tipoff with maker fee model passes fee_model through."""
+    result = baseline_buy_at_tipoff(
+        tipoff_price=0.91,
+        trades_df=game_data["trades_df"],
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.0,
+        settings=None,
+        fee_model="maker",
+    )
+
+    assert result["fee_cost_cents"] == 0.0
+    assert result["gross_pnl_cents"] == result["net_pnl_cents"]
+
+
+def test_baseline_buy_at_open_pregame_only_trades(game_data):
+    """Test buy-at-open when all trades are pregame (in_game empty)."""
+    base_time = game_data["base_time"]
+    pregame_only = pd.DataFrame(
+        {
+            "datetime": [
+                base_time - timedelta(minutes=10),
+                base_time - timedelta(minutes=5),
+            ],
+            "price": [0.90, 0.91],
+        }
+    )
+
+    result = baseline_buy_at_open(
+        open_price=0.90,
+        trades_df=pregame_only,
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.002,
+        settings=None,
+    )
+
+    # No in-game trades → exit is None
+    assert result["exit_price"] is None
+    assert result["hold_seconds"] == 0

@@ -30,3 +30,13 @@
 - Both quarter-based and time-based (6-min buckets) phase views in sensitivity surface
 
 ---
+
+## [plan_file: Backtest_Correctness_Fixes_Plan.md] 2026-04-14
+**Summary:** Fix six confirmed bugs in the backtest engine: look-ahead bias in exits, zero-PnL silent losses, one-sided fee, gross/net ROI confusion, broken time_based_quarter (removed), and baseline fee model mismatch.
+**Key decisions:**
+- Not-triggered exits use forced-close at last in-game price (not excluded from ROI mean)
+- time_based_quarter removed entirely (three compounding bugs, no active users)
+- Two-sided fee: (entry_price + exit_price) * fee_pct applied in compute_trade_pnl()
+- Baselines inherit fee_model from config instead of hardcoding "taker"
+
+---

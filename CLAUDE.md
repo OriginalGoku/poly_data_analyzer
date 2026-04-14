@@ -22,7 +22,7 @@ python app.py                     # run Dash app on localhost:8050
 
 ### Backtest Framework
 - `backtest_cli.py` -- CLI entry point; parses date range, dip thresholds, exit types, fee models, and sport filters
-- `backtest_config.py` -- `DipBuyBacktestConfig` frozen dataclass; defines parameters and sport-specific durations
+- `backtest_config.py` -- `DipBuyBacktestConfig` frozen dataclass; defines parameters (dip thresholds, exit types, fee model, sport filter)
 - `backtest_runner.py` -- Grid orchestration; loads games by date range, runs each config, aggregates results
 - `backtest_single_game.py` -- Single-game backtest; detects dips, applies exit logic, computes PnL for one game/config
 - `backtest_baselines.py` -- Baseline strategies for comparison (buy-at-open, buy-at-tipoff, buy-first-in-game)

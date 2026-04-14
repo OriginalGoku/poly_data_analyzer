@@ -52,7 +52,7 @@ Comprehensive dip-buy backtesting system for evaluating entry/exit strategies on
 ### Key Features
 
 - **Dip detection:** Identify price dips below market open by N cents during in-game trading
-- **Exit strategies:** Settlement, reversion-to-open, reversion-to-partial, fixed profit, time-based (by quarter)
+- **Exit strategies:** Settlement, reversion-to-open, reversion-to-partial, fixed profit
 - **Baseline strategies:** Buy-at-open, buy-at-tipoff, buy-first-in-game for comparison
 - **Fee models:** Taker (0.2%) and maker (0%) Polymarket fees
 - **Grid testing:** Run multiple configurations across date ranges and sports

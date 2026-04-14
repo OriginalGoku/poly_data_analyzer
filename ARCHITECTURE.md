@@ -93,10 +93,9 @@ Complete dip-buy backtesting system for evaluating entry and exit strategies on 
 #### `backtest_config.py` -- Configuration
 - `DipBuyBacktestConfig`: Frozen dataclass with:
   - **Dip thresholds**: Tuple of dip amounts in cents (e.g., 10, 15, 20 cents below market open)
-  - **Exit types**: `settlement` (hold to market close), `reversion_to_open` (exit when price returns to open), `reversion_to_partial` (exit at open + profit_target), `fixed_profit` (exit at open + fixed cents), `time_based_quarter` (exit at specified quarter boundary)
+  - **Exit types**: `settlement` (hold to market close), `reversion_to_open` (exit when price returns to open), `reversion_to_partial` (exit at open + profit_target), `fixed_profit` (exit at open + fixed cents)
   - **Fee models**: `taker` (0.2% Polymarket fee) or `maker` (0% fee)
   - **Sport filter**: `nba`, `nhl`, `mlb`, or `all`
-  - **Sport-specific durations**: NBA quarter (12 min), NHL period (20 min), MLB (wall-clock only)
   - Validation in `__post_init__` ensures non-empty thresholds, valid parameters
 
 ### Grid Orchestration & Aggregation
@@ -115,7 +114,8 @@ Complete dip-buy backtesting system for evaluating entry and exit strategies on 
 #### `backtest_single_game.py` -- Single-Game Orchestration
 - Orchestrates entry detection, exit logic, and PnL computation for one game + one config
 - Calls `find_dip_entry()` to locate the dip touch
-- Applies config's exit type logic (e.g., find reversion price, fixed time checkpoint)
+- Applies config's exit type logic (e.g., find reversion price, fixed profit target)
+- `find_exit()` bounds post-entry search to `< game_end` to prevent post-settlement price spikes; non-settlement exits that never hit their target return `forced_close` (last in-game price) instead of zero PnL
 - Computes settlement price from events
 - Returns trade record with entry price, exit price, PnL, win/loss, holding duration
 
@@ -125,7 +125,7 @@ Complete dip-buy backtesting system for evaluating entry and exit strategies on 
 - `baseline_buy_at_open()`: Buys at market-open price (from pre-game VWAP), exits per config
 - `baseline_buy_at_tipoff()`: Buys at first tipoff-time trade, exits per config
 - `baseline_buy_first_in_game()`: Buys at first in-game trade, exits per config
-- Each returns PnL record with entry/exit prices and fees applied
+- Each accepts a `fee_model` parameter (instead of hardcoding `"taker"`) and returns PnL record with entry/exit prices and fees applied
 
 #### `dip_entry_detection.py` -- Dip Touch Detection
 - `find_dip_entry()`: Scans in-game trades (post-tipoff), finds first touch at or below (open_price - dip_threshold_cents / 100)
@@ -141,7 +141,8 @@ Complete dip-buy backtesting system for evaluating entry and exit strategies on 
 
 #### `backtest_pnl.py` -- Trade-Level PnL
 - `compute_trade_pnl()`: Given entry, exit, and fee_pct, calculates PnL in cents and %
-- Applies Polymarket fees to both sides of the trade
+- Charges two-sided fee `(entry_price + exit_price) * fee_pct * 100`, matching Polymarket's model
+- `gross_roi_mean` in aggregation uses `gross_pnl_cents / (entry_price * 100)` (not `roi_pct`, which is net)
 - Returns PnL, win/loss flag, and holding duration
 
 ### Results Export & Visualization

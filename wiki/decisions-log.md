@@ -45,3 +45,16 @@
 **Notable:** Plotly `add_vline` with `annotation_text` crashes on datetime subplot axes — switched to `add_shape` + `add_annotation`. Otherwise execution matched plan.
 
 ---
+
+## [plan_file: Backtest_Correctness_Fixes_Plan.md] Executed 2026-04-14
+**Mode:** sequential | **Result:** All 6 steps completed
+**PRs:** N/A (committed directly to main)
+**Salience:** HIGH
+**Modules:** backtest/dip_entry_detection.py, backtest/backtest_pnl.py, backtest/backtest_config.py, backtest/backtest_runner.py, backtest/backtest_baselines.py, backtest/backtest_single_game.py, tests/test_backtest_*.py
+**Notable:** Plan lacked `Depends on:` metadata so execution ran strictly sequentially rather than in parallel waves. Pre-existing `test_backtest_cli.py` had an import error (`backtest.backtest_cli` not found) because `backtest_cli.py` lives in the project root, not inside the `backtest/` package — pre-existing failure, not introduced. Step 6 caught that the `test_run_backtest_grid_multiple_configs` mock was missing the `gross_pnl_cents` field required by the new aggregation formula.
+**Corrections:** none
+**Reversals:** none
+**Discoveries:** Mock objects in existing tests did not include all fields that new aggregation logic depends on — `gross_pnl_cents` was added to the formula in Step 5 but the Step 6 test-update pass was required to patch the mock, creating an implicit cross-step dependency the plan didn't model.
+**Lesson:** When a plan step modifies an aggregation formula that consumes per-trade result objects, audit every existing mock/fixture for that object type before writing new tests — missing fields in mocks will fail silently at the mock level and loudly only at assertion time.
+
+---

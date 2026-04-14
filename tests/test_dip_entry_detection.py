@@ -318,3 +318,123 @@ def test_find_exit_reversion_partial(ingame_trades, game_times):
 
     assert result["status"] == "filled"
     assert result["exit_price"] == 0.87
+
+
+def test_find_exit_unknown_type_raises(ingame_trades, game_times):
+    """Test that an unknown exit_type raises ValueError."""
+    with pytest.raises(ValueError, match="Unknown exit_type"):
+        find_exit(
+            ingame_trades,
+            entry_time=game_times["tipoff"],
+            entry_price=0.81,
+            exit_type="invalid_type",
+            exit_param=0,
+            open_price=0.92,
+            tipoff_time=game_times["tipoff"],
+            game_end=game_times["game_end"],
+            sport="nba",
+        )
+
+
+def test_find_exit_settlement_no_post_trades(base_time, game_times):
+    """Test settlement exit returns not_triggered when no post-entry in-game trades."""
+    trades = pd.DataFrame(
+        {
+            "datetime": [base_time + timedelta(minutes=1)],
+            "price": [0.81],
+        }
+    )
+    entry_time = base_time + timedelta(minutes=1)
+
+    result = find_exit(
+        trades,
+        entry_time=entry_time,
+        entry_price=0.81,
+        exit_type="settlement",
+        exit_param=0,
+        open_price=0.92,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        sport="nba",
+    )
+
+    assert result["status"] == "not_triggered"
+    assert result["exit_price"] is None
+    assert result["exit_type"] == "settlement"
+
+
+def test_find_exit_reversion_partial_forced_close_no_post_trades(base_time, game_times):
+    """Test reversion_to_partial returns not_triggered when no post-entry trades exist."""
+    trades = pd.DataFrame(
+        {
+            "datetime": [base_time + timedelta(minutes=1)],
+            "price": [0.81],
+        }
+    )
+    entry_time = base_time + timedelta(minutes=1)
+
+    result = find_exit(
+        trades,
+        entry_time=entry_time,
+        entry_price=0.81,
+        exit_type="reversion_to_partial",
+        exit_param=5,
+        open_price=0.92,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        sport="nba",
+    )
+
+    assert result["status"] == "not_triggered"
+    assert result["exit_price"] is None
+
+
+def test_find_exit_fixed_profit_forced_close_no_post_trades(base_time, game_times):
+    """Test fixed_profit returns not_triggered when no post-entry trades exist."""
+    trades = pd.DataFrame(
+        {
+            "datetime": [base_time + timedelta(minutes=1)],
+            "price": [0.81],
+        }
+    )
+    entry_time = base_time + timedelta(minutes=1)
+
+    result = find_exit(
+        trades,
+        entry_time=entry_time,
+        entry_price=0.81,
+        exit_type="fixed_profit",
+        exit_param=10,
+        open_price=0.92,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        sport="nba",
+    )
+
+    assert result["status"] == "not_triggered"
+    assert result["exit_price"] is None
+
+
+def test_find_dip_entry_excludes_game_end_boundary(base_time, game_times):
+    """Test that a trade exactly at game_end is excluded (< game_end, not <=)."""
+    trades = pd.DataFrame(
+        {
+            "datetime": [
+                base_time + timedelta(minutes=1),
+                game_times["game_end"],  # Exactly at game_end — must be excluded
+            ],
+            "price": [0.92, 0.81],  # Dip is at game_end
+        }
+    )
+
+    result = find_dip_entry(
+        trades,
+        open_price=0.92,
+        dip_threshold_cents=10,
+        tipoff_time=game_times["tipoff"],
+        game_end=game_times["game_end"],
+        settings=None,
+    )
+
+    # 0.81 at game_end is excluded; 0.92 in-game doesn't touch dip level (0.82)
+    assert result is None

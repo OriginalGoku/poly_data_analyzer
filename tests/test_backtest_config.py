@@ -63,3 +63,35 @@ def test_config_exit_types():
     for exit_type in ["settlement", "reversion_to_open", "reversion_to_partial", "fixed_profit"]:
         config = DipBuyBacktestConfig(exit_type=exit_type)
         assert config.exit_type == exit_type
+
+
+def test_config_dip_anchor_default():
+    """dip_anchor defaults to 'open'."""
+    config = DipBuyBacktestConfig()
+    assert config.dip_anchor == "open"
+
+
+def test_config_dip_anchor_tipoff():
+    """dip_anchor can be set to 'tipoff'."""
+    config = DipBuyBacktestConfig(dip_anchor="tipoff")
+    assert config.dip_anchor == "tipoff"
+
+
+def test_config_no_time_based_quarter_field():
+    """Deleted field time_based_quarter must not exist on config."""
+    config = DipBuyBacktestConfig()
+    assert not hasattr(config, "time_based_quarter")
+
+
+def test_config_no_time_exit_checkpoint_field():
+    """Deleted field time_exit_checkpoint must not exist on config."""
+    config = DipBuyBacktestConfig()
+    assert not hasattr(config, "time_exit_checkpoint")
+
+
+def test_config_no_duration_fields():
+    """Deleted sport-duration fields must not exist on config."""
+    config = DipBuyBacktestConfig()
+    assert not hasattr(config, "nba_quarter_duration_min")
+    assert not hasattr(config, "nhl_period_duration_min")
+    assert not hasattr(config, "mlb_inning_duration_min")
