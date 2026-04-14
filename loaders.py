@@ -53,7 +53,12 @@ def get_nba_games(data_dir: str, date: str) -> list[dict]:
     return get_games_for_date_and_sport(data_dir, date, "nba")
 
 
-def load_game(data_dir: str, date: str, match_id: str) -> dict:
+def load_game(
+    data_dir: str,
+    date: str,
+    match_id: str,
+    outlier_settings: dict | None = None,
+) -> dict:
     """Load trades and events for a single game.
 
     Returns dict with keys: manifest, trades_df, trades_meta, events
@@ -82,6 +87,9 @@ def load_game(data_dir: str, date: str, match_id: str) -> dict:
     trades_df = pd.DataFrame(trades_list)
     trades_df["datetime"] = pd.to_datetime(trades_df["timestamp"], unit="s", utc=True)
     trades_df["team"] = trades_df["asset"].map(token_to_team)
+
+    # Apply flash-crash outlier filter
+    trades_df = _filter_flash_crashes(trades_df, outlier_settings)
 
     # Parse gamma timestamps
     gamma_start = _parse_iso(manifest.get("gamma_start_time"))
@@ -148,6 +156,83 @@ def _load_manifest_index_cached(data_dir: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["date", "sport", "match_id", "label"])
     return pd.DataFrame(rows)
+
+
+def _filter_flash_crashes(
+    trades_df: pd.DataFrame,
+    settings: dict | None = None,
+) -> pd.DataFrame:
+    """Remove flash-crash outlier trades using bidirectional median comparison.
+
+    A trade is marked as an outlier if BOTH:
+      1. |price - median(previous N trades for same asset)| > backward_threshold
+      2. |price - median(next M trades at least T seconds ahead)| > forward_threshold
+
+    The forward window skips trades within T seconds of the current trade so that
+    a cluster of flash-crash fills (many small fills in the same second) doesn't
+    dominate the forward median. This preserves legitimate regime shifts while
+    removing transient order-book sweeps.
+    """
+    if settings is None:
+        settings = {}
+
+    bw = settings.get("outlier_backward_window", 20)
+    fw = settings.get("outlier_forward_window", 20)
+    bt = settings.get("outlier_backward_threshold", 0.75)
+    ft = settings.get("outlier_forward_threshold", 0.50)
+    skip_s = settings.get("outlier_forward_skip_seconds", 10)
+
+    if bw <= 0 and fw <= 0:
+        return trades_df
+
+    trades_df = trades_df.sort_values("datetime").reset_index(drop=True)
+    total_removed = 0
+    max_passes = 5
+    skip_delta = pd.Timedelta(seconds=skip_s)
+
+    for _ in range(max_passes):
+        outlier_mask = pd.Series(False, index=trades_df.index)
+
+        for asset in trades_df["asset"].unique():
+            asset_idx = trades_df.index[trades_df["asset"] == asset]
+            asset_trades = trades_df.loc[asset_idx]
+            prices = asset_trades["price"].astype(float)
+            times = asset_trades["datetime"]
+
+            if len(prices) < 2:
+                continue
+
+            backward_med = prices.rolling(window=bw, min_periods=1).median().shift(1)
+            backward_dev = (prices - backward_med).abs()
+
+            backward_suspects = backward_dev > bt
+            if not backward_suspects.any():
+                continue
+
+            suspect_indices = asset_idx[backward_suspects.values]
+            for idx in suspect_indices:
+                t = times.loc[idx]
+                future = asset_trades[(times.index > idx) & (times >= t + skip_delta)]
+                if len(future) < 1:
+                    continue
+                forward_prices = future["price"].astype(float).iloc[:fw]
+                fwd_med = forward_prices.median()
+                if abs(prices.loc[idx] - fwd_med) > ft:
+                    outlier_mask.loc[idx] = True
+
+        n_removed = outlier_mask.sum()
+        if n_removed == 0:
+            break
+        total_removed += n_removed
+        trades_df = trades_df[~outlier_mask].reset_index(drop=True)
+
+    if total_removed > 0:
+        import logging
+        logging.getLogger(__name__).info(
+            "Flash-crash filter removed %d trades", total_removed
+        )
+
+    return trades_df
 
 
 def _read_json(path: Path) -> dict:

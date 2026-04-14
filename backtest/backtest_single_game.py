@@ -28,6 +28,7 @@ def backtest_single_game(
     pregame_min_cum_vol: float = 5000,
     open_anchor_stat: str = "vwap",
     open_anchor_window_min: int = 5,
+    outlier_settings: dict | None = None,
 ) -> Optional[Dict]:
     """Run backtest for single game.
 
@@ -45,7 +46,7 @@ def backtest_single_game(
     """
     # Load game data
     try:
-        game_data = load_game(data_dir, date, match_id)
+        game_data = load_game(data_dir, date, match_id, outlier_settings=outlier_settings)
         trades_df = game_data["trades_df"]
         events = game_data["events"]
         manifest = game_data["manifest"]

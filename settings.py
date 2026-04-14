@@ -37,6 +37,11 @@ class ChartSettings:
     dip_min_trades: int = 3
     dip_max_trade_gap_seconds: int = 120
     dip_recovery_horizon_minutes: int = 15
+    outlier_backward_window: int = 20
+    outlier_forward_window: int = 20
+    outlier_backward_threshold: float = 0.75
+    outlier_forward_threshold: float = 0.50
+    outlier_forward_skip_seconds: int = 10
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChartSettings":
@@ -73,6 +78,11 @@ class ChartSettings:
             "dip_min_trades": self.dip_min_trades,
             "dip_max_trade_gap_seconds": self.dip_max_trade_gap_seconds,
             "dip_recovery_horizon_minutes": self.dip_recovery_horizon_minutes,
+            "outlier_backward_window": self.outlier_backward_window,
+            "outlier_forward_window": self.outlier_forward_window,
+            "outlier_backward_threshold": self.outlier_backward_threshold,
+            "outlier_forward_threshold": self.outlier_forward_threshold,
+            "outlier_forward_skip_seconds": self.outlier_forward_skip_seconds,
         }
 
 

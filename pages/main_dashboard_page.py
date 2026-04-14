@@ -344,7 +344,7 @@ class MainDashboardPage:
 
             from loaders import load_game
 
-            data = load_game(self.data_dir, game_date, match_id)
+            data = load_game(self.data_dir, game_date, match_id, outlier_settings=settings_dict)
             manifest = data["manifest"]
             trades_df = data["trades_df"]
             trades_meta = data["trades_meta"]

@@ -22,6 +22,7 @@ def run_backtest_grid(
     pregame_min_cum_vol: float = 5000,
     open_anchor_stat: str = "vwap",
     open_anchor_window_min: int = 5,
+    outlier_settings: dict | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run backtest grid across universe and configs.
 
@@ -91,6 +92,7 @@ def run_backtest_grid(
                     pregame_min_cum_vol=pregame_min_cum_vol,
                     open_anchor_stat=open_anchor_stat,
                     open_anchor_window_min=open_anchor_window_min,
+                    outlier_settings=outlier_settings,
                 )
 
                 if result is not None:

@@ -63,8 +63,38 @@ class BacktestRunnerPage:
         dates = get_dates_for_sport(DATA_DIR, default_sport) if default_sport else []
         date_options = [{"label": d, "value": d} for d in dates]
 
+        # Load outlier filter settings for display
+        chart_settings = load_chart_settings(SETTINGS_PATH).to_dict()
+        bw = chart_settings.get("outlier_backward_window", 20)
+        fw = chart_settings.get("outlier_forward_window", 20)
+        bt = chart_settings.get("outlier_backward_threshold", 0.75)
+        ft = chart_settings.get("outlier_forward_threshold", 0.50)
+        skip_s = chart_settings.get("outlier_forward_skip_seconds", 10)
+
         return html.Div(children=[
             html.H2("Run Backtest", style={"marginBottom": "10px"}),
+
+            # Flash-crash filter info
+            html.Div(
+                style={
+                    **CARD_STYLE,
+                    "marginBottom": "16px",
+                    "padding": "10px 16px",
+                    "fontSize": "13px",
+                    "display": "flex",
+                    "gap": "24px",
+                    "flexWrap": "wrap",
+                    "alignItems": "center",
+                },
+                children=[
+                    html.Span("Flash-Crash Filter", style={"fontWeight": "bold", "color": "#93c5fd"}),
+                    html.Span(f"Backward Window: {bw} trades"),
+                    html.Span(f"Forward Window: {fw} trades"),
+                    html.Span(f"Backward Threshold: {bt}"),
+                    html.Span(f"Forward Threshold: {ft}"),
+                    html.Span(f"Forward Skip: {skip_s}s"),
+                ],
+            ),
 
             # Parameter grid
             html.Div(
@@ -335,6 +365,7 @@ def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_
             pregame_min_cum_vol=chart_settings.get("pregame_min_cum_vol", 5000),
             open_anchor_stat=chart_settings.get("open_anchor_stat", "vwap"),
             open_anchor_window_min=chart_settings.get("open_anchor_window_min", 5),
+            outlier_settings=chart_settings,
         )
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

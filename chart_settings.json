@@ -24,5 +24,10 @@
   "dip_thresholds": [0.05, 0.04, 0.03, 0.02],
   "dip_min_trades": 3,
   "dip_max_trade_gap_seconds": 120,
-  "dip_recovery_horizon_minutes": 15
+  "dip_recovery_horizon_minutes": 15,
+  "outlier_backward_window": 20,
+  "outlier_forward_window": 20,
+  "outlier_backward_threshold": 0.75,
+  "outlier_forward_threshold": 0.50,
+  "outlier_forward_skip_seconds": 10
 }
