@@ -43,7 +43,14 @@ DIP_ANCHOR_OPTIONS = [
 ]
 
 # Shared state for run progress
-_run_state = {"running": False, "output_dir": None, "error": None}
+_run_state = {
+    "running": False,
+    "output_dir": None,
+    "error": None,
+    "progress_msg": "",
+    "games_done": 0,
+    "games_total": 0,
+}
 
 
 class BacktestRunnerPage:
@@ -186,6 +193,36 @@ class BacktestRunnerPage:
                 ],
             ),
 
+            # Output folder name
+            html.Div(
+                style={"display": "flex", "gap": "12px", "alignItems": "flex-end", "marginBottom": "20px"},
+                children=[
+                    html.Div([
+                        html.Label("Output Folder Name", style={"display": "block", "marginBottom": "4px"}),
+                        dcc.Input(
+                            id="run-folder-name",
+                            type="text",
+                            placeholder="auto-generated if blank",
+                            debounce=False,
+                            style={
+                                "width": "360px",
+                                "padding": "6px 10px",
+                                "backgroundColor": "#1e293b",
+                                "color": "#e2e8f0",
+                                "border": "1px solid #334155",
+                                "borderRadius": "4px",
+                                "fontFamily": "monospace",
+                                "fontSize": "13px",
+                            },
+                        ),
+                    ]),
+                    html.Span(
+                        "Leave blank to auto-generate from date range, sport, and timestamp.",
+                        style={"color": "#64748b", "fontSize": "12px", "paddingBottom": "6px"},
+                    ),
+                ],
+            ),
+
             # Config summary + run button
             html.Div(
                 style={"display": "flex", "gap": "20px", "alignItems": "center", "marginBottom": "20px"},
@@ -214,7 +251,7 @@ class BacktestRunnerPage:
                 id="run-status",
                 style={
                     **CARD_STYLE,
-                    "minHeight": "60px",
+                    "minHeight": "80px",
                     "whiteSpace": "pre-wrap",
                     "fontFamily": "monospace",
                     "fontSize": "13px",
@@ -223,7 +260,7 @@ class BacktestRunnerPage:
             ),
 
             # Polling interval (disabled by default)
-            dcc.Interval(id="run-poll-interval", interval=2000, disabled=True),
+            dcc.Interval(id="run-poll-interval", interval=1000, disabled=True),
         ])
 
     def register_callbacks(self, app):
@@ -271,10 +308,11 @@ class BacktestRunnerPage:
             State("run-dip-anchors", "value"),
             State("run-exit-types", "value"),
             State("run-fee-models", "value"),
+            State("run-folder-name", "value"),
             prevent_initial_call=True,
         )
         def start_backtest(n_clicks, sport, start_date, end_date,
-                           thresholds, anchors, exit_types, fee_models):
+                           thresholds, anchors, exit_types, fee_models, folder_name):
             if not n_clicks or _run_state["running"]:
                 return no_update, no_update, no_update
 
@@ -285,11 +323,14 @@ class BacktestRunnerPage:
             _run_state["running"] = True
             _run_state["output_dir"] = None
             _run_state["error"] = None
+            _run_state["progress_msg"] = "Starting..."
+            _run_state["games_done"] = 0
+            _run_state["games_total"] = 0
 
             # Launch in background thread
             thread = threading.Thread(
                 target=_run_backtest_thread,
-                args=(sport, start_date, end_date, thresholds, anchors, exit_types, fee_models),
+                args=(sport, start_date, end_date, thresholds, anchors, exit_types, fee_models, folder_name or ""),
                 daemon=True,
             )
             thread.start()
@@ -315,23 +356,38 @@ class BacktestRunnerPage:
             Input("run-poll-interval", "n_intervals"),
         )
         def poll_status(n_intervals):
-            if not _run_state["running"]:
-                if _run_state["error"]:
-                    msg = f"Backtest failed:\n{_run_state['error']}"
-                    return msg, True, False
-                if _run_state["output_dir"]:
-                    output = _run_state["output_dir"]
-                    return (
-                        f"Backtest complete.\n"
-                        f"Results saved to: {output}\n\n"
-                        f"View results on the Backtest Results tab.",
-                        True,   # Stop polling
-                        False,  # Re-enable button
-                    )
+            if _run_state["running"]:
+                done = _run_state["games_done"]
+                total = _run_state["games_total"]
+                msg = _run_state["progress_msg"]
+                if total > 0:
+                    bar_filled = int(done / total * 20)
+                    bar = "[" + "#" * bar_filled + "-" * (20 - bar_filled) + "]"
+                    progress_line = f"{bar} {done}/{total} games\n  {msg}"
+                else:
+                    progress_line = f"  {msg}"
+                return (
+                    f"Running backtest...\n\n{progress_line}",
+                    no_update,
+                    no_update,
+                )
+
+            if _run_state["error"]:
+                msg = f"Backtest failed:\n{_run_state['error']}"
+                return msg, True, False
+            if _run_state["output_dir"]:
+                output = _run_state["output_dir"]
+                return (
+                    f"Backtest complete.\n"
+                    f"Results saved to: {output}\n\n"
+                    f"View results on the Backtest Results tab.",
+                    True,   # Stop polling
+                    False,  # Re-enable button
+                )
             return no_update, no_update, no_update
 
 
-def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_types, fee_models):
+def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_types, fee_models, folder_name):
     """Execute backtest in a background thread."""
     try:
         from backtest.backtest_config import DipBuyBacktestConfig
@@ -356,6 +412,11 @@ def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_
         sd = datetime.strptime(start_date, "%Y-%m-%d")
         ed = datetime.strptime(end_date, "%Y-%m-%d")
 
+        def progress_callback(msg, games_done, games_total):
+            _run_state["progress_msg"] = msg
+            _run_state["games_done"] = games_done
+            _run_state["games_total"] = games_total
+
         agg_df, per_game_df = run_backtest_grid(
             start_date=sd,
             end_date=ed,
@@ -366,12 +427,19 @@ def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_
             open_anchor_stat=chart_settings.get("open_anchor_stat", "vwap"),
             open_anchor_window_min=chart_settings.get("open_anchor_window_min", 5),
             outlier_settings=chart_settings,
+            progress_callback=progress_callback,
         )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        sport_tag = sport if sport != "all" else "all"
-        folder_name = f"{start_date}_{end_date}_{sport_tag}_{timestamp}"
-        output_dir = RESULTS_DIR / folder_name
+        _run_state["progress_msg"] = "Aggregating results..."
+
+        if folder_name:
+            output_folder = folder_name
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            sport_tag = sport if sport != "all" else "all"
+            output_folder = f"{start_date}_{end_date}_{sport_tag}_{timestamp}"
+
+        output_dir = RESULTS_DIR / output_folder
         export_backtest_results(
             aggregated_df=agg_df,
             per_game_df=per_game_df,

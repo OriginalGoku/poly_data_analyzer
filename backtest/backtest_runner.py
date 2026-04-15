@@ -23,6 +23,7 @@ def run_backtest_grid(
     open_anchor_stat: str = "vwap",
     open_anchor_window_min: int = 5,
     outlier_settings: dict | None = None,
+    progress_callback=None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run backtest grid across universe and configs.
 
@@ -53,7 +54,11 @@ def run_backtest_grid(
     )
 
     all_results = []
-    total_combos = len(universe) * len(configs)
+    total_games = len(universe)
+    total_combos = total_games * len(configs)
+
+    if progress_callback:
+        progress_callback(f"Universe loaded: {total_games} games, {len(configs)} configs", 0, total_games)
 
     # Create progress iterator
     iterator = tqdm(
@@ -63,7 +68,13 @@ def run_backtest_grid(
         disable=not verbose,
     ) if verbose else universe
 
-    for date, match_id, sport, open_fav_price, tipoff_fav_price, token_id, can_settle, price_quality in iterator:
+    for game_idx, (date, match_id, sport, open_fav_price, tipoff_fav_price, token_id, can_settle, price_quality) in enumerate(iterator, start=1):
+        if progress_callback:
+            progress_callback(
+                f"[{game_idx}/{total_games}] {date} {match_id} ({sport.upper()})",
+                game_idx,
+                total_games,
+            )
         for config in configs:
             # Skip if sport doesn't match filter
             if config.sport_filter != "all" and config.sport_filter != sport:
