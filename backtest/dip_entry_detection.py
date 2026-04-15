@@ -128,7 +128,7 @@ def find_exit(
                 "exit_price": exit_trade["price"],
                 "exit_type": "reversion_to_open",
                 "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
-                "status": "forced_close",
+                "status": "filled",
             }
         exit_trade = revert.iloc[0]
         return {
@@ -158,7 +158,7 @@ def find_exit(
                 "exit_price": exit_trade["price"],
                 "exit_type": "reversion_to_partial",
                 "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
-                "status": "forced_close",
+                "status": "filled",
             }
         exit_trade = revert.iloc[0]
         return {
@@ -188,7 +188,7 @@ def find_exit(
                 "exit_price": exit_trade["price"],
                 "exit_type": "fixed_profit",
                 "hold_seconds": int((exit_trade["datetime"] - entry_time).total_seconds()),
-                "status": "forced_close",
+                "status": "filled",
             }
         exit_trade = profit.iloc[0]
         return {
