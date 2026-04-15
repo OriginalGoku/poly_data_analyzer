@@ -58,6 +58,13 @@ def _load_run(run_name: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def _coerce_persisted_filter_value(current_value, valid_values, fallback):
+    """Keep a persisted selection only when it still exists for the chosen run."""
+    if current_value in valid_values:
+        return current_value
+    return fallback
+
+
 class BacktestResultsPage:
     """Browse backtest results and click through to main dashboard."""
 
@@ -86,6 +93,8 @@ class BacktestResultsPage:
                             options=run_options,
                             value=default_run,
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "220px", "color": "#111"},
                         ),
                     ]),
@@ -94,6 +103,8 @@ class BacktestResultsPage:
                         dcc.Dropdown(
                             id="bt-exit-filter",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "200px", "color": "#111"},
                         ),
                     ]),
@@ -102,6 +113,8 @@ class BacktestResultsPage:
                         dcc.Dropdown(
                             id="bt-fee-filter",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "160px", "color": "#111"},
                         ),
                     ]),
@@ -110,6 +123,8 @@ class BacktestResultsPage:
                         dcc.Dropdown(
                             id="bt-anchor-filter",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "160px", "color": "#111"},
                         ),
                     ]),
@@ -118,6 +133,8 @@ class BacktestResultsPage:
                         dcc.Dropdown(
                             id="bt-dip-filter",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "160px", "color": "#111"},
                         ),
                     ]),
@@ -132,7 +149,25 @@ class BacktestResultsPage:
                             ],
                             value="filled",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="local",
                             style={"width": "160px", "color": "#111"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Outcome"),
+                        dcc.Checklist(
+                            id="bt-outcome-filter",
+                            options=[
+                                {"label": " Winners", "value": "winners"},
+                                {"label": " Losers", "value": "losers"},
+                            ],
+                            value=["winners", "losers"],
+                            inline=False,
+                            persistence=True,
+                            persistence_type="local",
+                            style={"paddingTop": "4px"},
+                            labelStyle={"display": "block", "color": "#e2e8f0", "fontSize": "13px", "lineHeight": "1.8", "cursor": "pointer"},
                         ),
                     ]),
                 ],
@@ -210,8 +245,12 @@ class BacktestResultsPage:
             Output("bt-dip-filter", "options"),
             Output("bt-dip-filter", "value"),
             Input("bt-run-picker", "value"),
+            State("bt-exit-filter", "value"),
+            State("bt-fee-filter", "value"),
+            State("bt-anchor-filter", "value"),
+            State("bt-dip-filter", "value"),
         )
-        def populate_filters(run_name):
+        def populate_filters(run_name, exit_value, fee_value, anchor_value, dip_value):
             if not run_name:
                 return [], None, [], None, [], None, [], None
             df = _load_run(run_name)
@@ -238,7 +277,21 @@ class BacktestResultsPage:
                 {"label": f"{int(d)}c", "value": str(d)} for d in dip_thresholds
             ]
 
-            return exit_opts, "all", fee_opts, "all", anchor_opts, "all", dip_opts, "all"
+            exit_values = {opt["value"] for opt in exit_opts}
+            fee_values = {opt["value"] for opt in fee_opts}
+            anchor_values = {opt["value"] for opt in anchor_opts}
+            dip_values = {opt["value"] for opt in dip_opts}
+
+            return (
+                exit_opts,
+                _coerce_persisted_filter_value(exit_value, exit_values, "all"),
+                fee_opts,
+                _coerce_persisted_filter_value(fee_value, fee_values, "all"),
+                anchor_opts,
+                _coerce_persisted_filter_value(anchor_value, anchor_values, "all"),
+                dip_opts,
+                _coerce_persisted_filter_value(dip_value, dip_values, "all"),
+            )
 
         @app.callback(
             Output("bt-results-table", "data"),
@@ -249,8 +302,9 @@ class BacktestResultsPage:
             Input("bt-anchor-filter", "value"),
             Input("bt-dip-filter", "value"),
             Input("bt-status-filter", "value"),
+            Input("bt-outcome-filter", "value"),
         )
-        def update_table(run_name, exit_filter, fee_filter, anchor_filter, dip_filter, status_filter):
+        def update_table(run_name, exit_filter, fee_filter, anchor_filter, dip_filter, status_filter, outcome_filter):
             if not run_name:
                 return [], "No run selected"
             df = _load_run(run_name)
@@ -268,6 +322,20 @@ class BacktestResultsPage:
                 df = df[df["dip_threshold"] == float(dip_filter)]
             if status_filter and status_filter != "all":
                 df = df[df["status"] == status_filter]
+
+            # Outcome filter: only applies to filled rows; non-filled pass through
+            outcome_filter = outcome_filter or []
+            show_winners = "winners" in outcome_filter
+            show_losers = "losers" in outcome_filter
+            if not (show_winners and show_losers) and "roi_pct" in df.columns:
+                filled_mask = df["status"] == "filled"
+                winner_mask = df["roi_pct"] > 0
+                keep_mask = ~filled_mask  # non-filled always pass through
+                if show_winners:
+                    keep_mask |= filled_mask & winner_mask
+                if show_losers:
+                    keep_mask |= filled_mask & ~winner_mask
+                df = df[keep_mask]
 
             # Build summary
             filled = df[df["status"] == "filled"]
