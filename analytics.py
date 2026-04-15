@@ -261,6 +261,7 @@ def _build_game_record(
         "tipoff_favorite_team": tipoff_snapshot["team"],
         "tipoff_favorite_price": tipoff_snapshot["price"],
         "tipoff_available": tipoff_snapshot["price"] is not None,
+        "in_game_notional_usdc": manifest.get("volume_stats", {}).get("in_game_notional_usdc"),
     }
 
 

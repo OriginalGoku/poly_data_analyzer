@@ -49,6 +49,11 @@ def filter_upper_strong_universe(
         if row.get("open_favorite_team") == "Tie":
             continue
 
+        # Filter: exclude games with zero in-game trading (e.g., postponed/cancelled games)
+        in_game_vol = row.get("in_game_notional_usdc")
+        if in_game_vol is not None and in_game_vol == 0:
+            continue
+
         # Optional: exclude inferred price_quality
         price_quality = row.get("price_quality", "unknown")
         if exclude_inferred_price_quality and price_quality == "inferred":
