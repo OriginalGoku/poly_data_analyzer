@@ -55,6 +55,7 @@ def build_navbar(active_path: str) -> html.Div:
         ("NBA Open vs Tip-Off", "/nba-open-tipoff-analysis"),
         ("Backtest Results", "/backtest-results"),
         ("Run Backtest", "/run-backtest"),
+        ("Scenario Builder", "/scenario-builder"),
         ("Scenario Runner", "/scenario-runner"),
         ("Scenario Results", "/scenario-results"),
     ]

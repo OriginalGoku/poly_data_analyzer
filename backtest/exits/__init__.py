@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Callable, Mapping, Optional
 
 from backtest.contracts import Context, Exit, Trigger
-from backtest.registry import EXITS
+from backtest.registry import EXITS, EXIT_SCHEMAS
 
 
 @dataclass(frozen=True)
@@ -29,17 +29,23 @@ class ExitScanner:
         return self._scan_fn(ctx, self.trigger, self.params, now)
 
 
-from backtest.exits.settlement import settlement  # noqa: E402
-from backtest.exits.reversion_to_open import reversion_to_open  # noqa: E402
-from backtest.exits.reversion_to_partial import reversion_to_partial  # noqa: E402
-from backtest.exits.fixed_profit import fixed_profit  # noqa: E402
-from backtest.exits.tp_sl import tp_sl  # noqa: E402
+from backtest.exits.settlement import settlement, PARAM_SCHEMA as _settlement_schema  # noqa: E402
+from backtest.exits.reversion_to_open import reversion_to_open, PARAM_SCHEMA as _reversion_to_open_schema  # noqa: E402
+from backtest.exits.reversion_to_partial import reversion_to_partial, PARAM_SCHEMA as _reversion_to_partial_schema  # noqa: E402
+from backtest.exits.fixed_profit import fixed_profit, PARAM_SCHEMA as _fixed_profit_schema  # noqa: E402
+from backtest.exits.tp_sl import tp_sl, PARAM_SCHEMA as _tp_sl_schema  # noqa: E402
 
 EXITS["settlement"] = settlement
 EXITS["reversion_to_open"] = reversion_to_open
 EXITS["reversion_to_partial"] = reversion_to_partial
 EXITS["fixed_profit"] = fixed_profit
 EXITS["tp_sl"] = tp_sl
+
+EXIT_SCHEMAS["settlement"] = _settlement_schema
+EXIT_SCHEMAS["reversion_to_open"] = _reversion_to_open_schema
+EXIT_SCHEMAS["reversion_to_partial"] = _reversion_to_partial_schema
+EXIT_SCHEMAS["fixed_profit"] = _fixed_profit_schema
+EXIT_SCHEMAS["tp_sl"] = _tp_sl_schema
 
 __all__ = [
     "ExitScanner",

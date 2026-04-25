@@ -9,6 +9,9 @@ import pandas as pd
 from backtest.contracts import Context, Exit, Trigger
 
 
+PARAM_SCHEMA: list = []
+
+
 def _scan(ctx: Context, trigger: Trigger, params: Mapping[str, Any], now: datetime) -> Optional[Exit]:
     if trigger.anchor_price is None:
         return None

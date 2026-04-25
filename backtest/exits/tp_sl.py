@@ -20,6 +20,13 @@ import pandas as pd
 from backtest.contracts import Context, Exit, Trigger
 
 
+PARAM_SCHEMA = [
+    {"name": "take_profit_cents", "type": "nullable_int", "default": 10, "label": "Take profit (cents)", "sweepable": True},
+    {"name": "stop_loss_cents", "type": "nullable_int", "default": 10, "label": "Stop loss (cents)", "sweepable": True},
+    {"name": "max_hold_seconds", "type": "nullable_int", "default": 3600, "label": "Max hold (sec)"},
+]
+
+
 def _scan(ctx: Context, trigger: Trigger, params: Mapping[str, Any], now: datetime) -> Optional[Exit]:
     tp_cents = params.get("take_profit_cents")
     sl_cents = params.get("stop_loss_cents")

@@ -11,6 +11,12 @@ from typing import Any, Mapping, Optional
 from backtest.contracts import Context, Trigger
 
 
+PARAM_SCHEMA = [
+    {"name": "anchor", "type": "enum", "choices": ["open", "tipoff"], "default": "open", "label": "Anchor"},
+    {"name": "threshold_cents", "type": "int", "default": 10, "label": "Threshold (cents)", "sweepable": True},
+]
+
+
 def dip_below_anchor(
     ctx: Context,
     after_time: datetime,

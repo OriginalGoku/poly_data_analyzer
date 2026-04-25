@@ -12,6 +12,16 @@ from loaders import load_game
 from backtest.contracts import GameMeta
 
 
+PARAM_SCHEMA = [
+    {"name": "k", "type": "int", "default": 5, "label": "K (first trades)", "sweepable": True},
+    {"name": "min_price", "type": "float", "default": 0.85, "label": "Min price", "sweepable": True},
+    {"name": "exclude_inferred_price_quality", "type": "bool", "default": True, "label": "Exclude inferred price quality"},
+    {"name": "pregame_min_cum_vol", "type": "int", "default": 5000, "label": "Pregame min cum vol"},
+    {"name": "open_anchor_stat", "type": "enum", "choices": ["vwap", "median", "mean"], "default": "vwap", "label": "Open anchor stat"},
+    {"name": "open_anchor_window_min", "type": "int", "default": 5, "label": "Open anchor window (min)"},
+]
+
+
 def _tipoff_time(events: list[dict] | None) -> Optional[pd.Timestamp]:
     if not events:
         return None

@@ -11,6 +11,9 @@ from typing import Any, Mapping, Optional
 from backtest.contracts import Context, Exit, Trigger
 
 
+PARAM_SCHEMA: list = []
+
+
 def _scan(ctx: Context, trigger: Trigger, params: Mapping[str, Any], now: datetime) -> Optional[Exit]:
     return None
 

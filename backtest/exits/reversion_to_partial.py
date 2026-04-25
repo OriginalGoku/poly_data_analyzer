@@ -9,6 +9,11 @@ import pandas as pd
 from backtest.contracts import Context, Exit, Trigger
 
 
+PARAM_SCHEMA = [
+    {"name": "partial_cents", "type": "int", "default": 5, "label": "Partial cents (below anchor)", "sweepable": True},
+]
+
+
 def _scan(ctx: Context, trigger: Trigger, params: Mapping[str, Any], now: datetime) -> Optional[Exit]:
     if trigger.anchor_price is None:
         return None

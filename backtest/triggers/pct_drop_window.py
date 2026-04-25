@@ -13,6 +13,13 @@ import pandas as pd
 from backtest.contracts import Context, Trigger
 
 
+PARAM_SCHEMA = [
+    {"name": "anchor", "type": "enum", "choices": ["open", "tipoff"], "default": "open", "label": "Anchor"},
+    {"name": "drop_pct", "type": "float", "default": 50.0, "label": "Drop %", "sweepable": True},
+    {"name": "window_seconds_after_tipoff", "type": "int_pair", "default": [0, 3600], "label": "Window after tipoff (sec, lo-hi)", "nullable": True},
+]
+
+
 def pct_drop_window(
     ctx: Context,
     after_time: datetime,

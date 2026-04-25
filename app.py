@@ -11,6 +11,7 @@ from pages.backtest_results_page import BacktestResultsPage
 from pages.backtest_runner_page import BacktestRunnerPage
 from pages.main_dashboard_page import MainDashboardPage, _build_analysis_card, _build_whale_card
 from pages.nba_open_tipoff_page import NBAOpenTipoffAnalysisPage
+from pages.scenario_builder_page import ScenarioBuilderPage
 from pages.scenario_results_page import ScenarioResultsPage
 from pages.scenario_runner_page import ScenarioRunnerPage
 from settings import load_chart_settings
@@ -31,6 +32,7 @@ backtest_page = BacktestResultsPage()
 backtest_runner_page = BacktestRunnerPage()
 scenario_runner_page = ScenarioRunnerPage()
 scenario_results_page = ScenarioResultsPage()
+scenario_builder_page = ScenarioBuilderPage()
 PAGES = {
     main_page.route: main_page,
     nba_analysis_page.route: nba_analysis_page,
@@ -38,6 +40,7 @@ PAGES = {
     backtest_runner_page.route: backtest_runner_page,
     scenario_runner_page.route: scenario_runner_page,
     scenario_results_page.route: scenario_results_page,
+    scenario_builder_page.route: scenario_builder_page,
 }
 
 
@@ -62,6 +65,7 @@ backtest_page.register_callbacks(app)
 backtest_runner_page.register_callbacks(app)
 scenario_runner_page.register_callbacks(app)
 scenario_results_page.register_callbacks(app)
+scenario_builder_page.register_callbacks(app)
 
 
 if __name__ == "__main__":

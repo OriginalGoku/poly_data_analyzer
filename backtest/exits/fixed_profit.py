@@ -9,6 +9,11 @@ import pandas as pd
 from backtest.contracts import Context, Exit, Trigger
 
 
+PARAM_SCHEMA = [
+    {"name": "profit_cents", "type": "int", "default": 8, "label": "Profit (cents)", "sweepable": True},
+]
+
+
 def _scan(ctx: Context, trigger: Trigger, params: Mapping[str, Any], now: datetime) -> Optional[Exit]:
     profit_cents = int(params["profit_cents"])
     target = round(float(trigger.trigger_price) + profit_cents / 100.0, 4)
