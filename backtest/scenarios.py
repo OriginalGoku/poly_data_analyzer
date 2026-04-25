@@ -108,6 +108,11 @@ def _expand(raw: Dict[str, Any]) -> List[Scenario]:
         return [_build_scenario(raw, sweep_axes={})]
     paths = [p for p, _ in sweeps]
     value_lists = [vals for _, vals in sweeps]
+    for path, vals in zip(paths, value_lists):
+        if not vals:
+            raise ValueError(
+                f"scenario {raw.get('name', '<unknown>')} has empty sweep at {'.'.join(path)}"
+            )
     base_name = raw["name"]
     out: List[Scenario] = []
     for combo in itertools.product(*value_lists):
