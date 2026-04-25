@@ -47,6 +47,10 @@ def compute_dip_recovery_intervals(
             "home_score": [int(event.get("home_score") or 0) for event in score_events],
         }
     ).sort_values("datetime")
+    score_df["datetime"] = (
+        pd.to_datetime(score_df["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
 
     rows: list[dict] = []
     for token_id, team in zip(manifest["token_ids"], manifest["outcomes"]):
@@ -57,6 +61,10 @@ def compute_dip_recovery_intervals(
         ].sort_values("datetime").copy()
         if team_trades.empty:
             continue
+        team_trades["datetime"] = (
+            pd.to_datetime(team_trades["datetime"], utc=True)
+            .astype("datetime64[ns, UTC]")
+        )
 
         aligned = pd.merge_asof(team_trades, score_df, on="datetime", direction="backward")
         aligned = aligned.dropna(subset=["period"]).reset_index(drop=True)

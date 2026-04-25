@@ -1208,6 +1208,11 @@ def _score_lead_series_for_times(
             "home_score": [ev.get("home_score", 0) or 0 for ev in score_events],
         }
     ).sort_values("datetime")
+    # Normalize both sides of the asof-merge to the same timezone-aware dtype.
+    score_df["datetime"] = (
+        pd.to_datetime(score_df["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
     score_df["score_lead"] = score_df.apply(
         lambda row: _score_lead_from_scores(
             away_team,
@@ -1218,7 +1223,11 @@ def _score_lead_series_for_times(
         axis=1,
     )
 
-    trade_times = pd.DataFrame({"datetime": pd.to_datetime(times)})
+    trade_times = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(times, utc=True).astype("datetime64[ns, UTC]")
+        }
+    )
     merged = pd.merge_asof(
         trade_times.sort_values("datetime"),
         score_df[["datetime", "score_lead"]],

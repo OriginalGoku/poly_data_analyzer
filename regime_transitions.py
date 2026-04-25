@@ -52,6 +52,10 @@ def compute_regime_transitions(
     ].sort_values("datetime").copy()
     if away_trades.empty:
         return None
+    away_trades["datetime"] = (
+        pd.to_datetime(away_trades["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
 
     score_df = pd.DataFrame(
         {
@@ -59,6 +63,10 @@ def compute_regime_transitions(
             "period": [int(event.get("period") or 0) for event in score_events],
         }
     ).sort_values("datetime")
+    score_df["datetime"] = (
+        pd.to_datetime(score_df["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
     aligned = pd.merge_asof(away_trades, score_df, on="datetime", direction="backward")
     aligned = aligned.dropna(subset=["period"]).reset_index(drop=True)
     if aligned.empty:

@@ -65,6 +65,18 @@ def _coerce_persisted_filter_value(current_value, valid_values, fallback):
     return fallback
 
 
+def _default_filter_state() -> dict:
+    return {
+        "run": None,
+        "exit": "all",
+        "fee": "all",
+        "anchor": "all",
+        "dip": "all",
+        "status": "filled",
+        "outcome": ["winners", "losers"],
+    }
+
+
 class BacktestResultsPage:
     """Browse backtest results and click through to main dashboard."""
 
@@ -80,6 +92,7 @@ class BacktestResultsPage:
         default_run = runs[0] if runs else None
 
         return html.Div(children=[
+            dcc.Store(id="bt-filter-store", storage_type="local"),
             html.H2("Backtest Results", style={"marginBottom": "10px"}),
 
             # Run selector and filters
@@ -236,6 +249,31 @@ class BacktestResultsPage:
     def register_callbacks(self, app):
 
         @app.callback(
+            Output("bt-run-picker", "value"),
+            Output("bt-status-filter", "value"),
+            Output("bt-outcome-filter", "value"),
+            Input("url", "pathname"),
+            State("bt-filter-store", "data"),
+        )
+        def restore_saved_filters(pathname, stored_filters):
+            if pathname != self.route:
+                return no_update, no_update, no_update
+
+            saved = _default_filter_state()
+            if stored_filters:
+                saved.update(stored_filters)
+
+            available_runs = _get_available_runs()
+            default_run = available_runs[0] if available_runs else None
+            run_value = saved["run"] if saved["run"] in available_runs else default_run
+
+            return (
+                run_value,
+                saved.get("status", "filled"),
+                saved.get("outcome", ["winners", "losers"]),
+            )
+
+        @app.callback(
             Output("bt-exit-filter", "options"),
             Output("bt-exit-filter", "value"),
             Output("bt-fee-filter", "options"),
@@ -245,17 +283,18 @@ class BacktestResultsPage:
             Output("bt-dip-filter", "options"),
             Output("bt-dip-filter", "value"),
             Input("bt-run-picker", "value"),
-            State("bt-exit-filter", "value"),
-            State("bt-fee-filter", "value"),
-            State("bt-anchor-filter", "value"),
-            State("bt-dip-filter", "value"),
+            State("bt-filter-store", "data"),
         )
-        def populate_filters(run_name, exit_value, fee_value, anchor_value, dip_value):
+        def populate_filters(run_name, stored_filters):
             if not run_name:
                 return [], None, [], None, [], None, [], None
             df = _load_run(run_name)
             if df.empty:
                 return [], None, [], None, [], None, [], None
+
+            saved = _default_filter_state()
+            if stored_filters:
+                saved.update(stored_filters)
 
             exit_types = sorted(df["exit_type"].dropna().unique())
             exit_opts = [{"label": "All", "value": "all"}] + [
@@ -284,14 +323,36 @@ class BacktestResultsPage:
 
             return (
                 exit_opts,
-                _coerce_persisted_filter_value(exit_value, exit_values, "all"),
+                _coerce_persisted_filter_value(saved.get("exit"), exit_values, "all"),
                 fee_opts,
-                _coerce_persisted_filter_value(fee_value, fee_values, "all"),
+                _coerce_persisted_filter_value(saved.get("fee"), fee_values, "all"),
                 anchor_opts,
-                _coerce_persisted_filter_value(anchor_value, anchor_values, "all"),
+                _coerce_persisted_filter_value(saved.get("anchor"), anchor_values, "all"),
                 dip_opts,
-                _coerce_persisted_filter_value(dip_value, dip_values, "all"),
+                _coerce_persisted_filter_value(saved.get("dip"), dip_values, "all"),
             )
+
+        @app.callback(
+            Output("bt-filter-store", "data"),
+            Input("bt-run-picker", "value"),
+            Input("bt-exit-filter", "value"),
+            Input("bt-fee-filter", "value"),
+            Input("bt-anchor-filter", "value"),
+            Input("bt-dip-filter", "value"),
+            Input("bt-status-filter", "value"),
+            Input("bt-outcome-filter", "value"),
+            prevent_initial_call=True,
+        )
+        def persist_filters(run_name, exit_filter, fee_filter, anchor_filter, dip_filter, status_filter, outcome_filter):
+            return {
+                "run": run_name,
+                "exit": exit_filter or "all",
+                "fee": fee_filter or "all",
+                "anchor": anchor_filter or "all",
+                "dip": dip_filter or "all",
+                "status": status_filter or "filled",
+                "outcome": outcome_filter or ["winners", "losers"],
+            }
 
         @app.callback(
             Output("bt-results-table", "data"),

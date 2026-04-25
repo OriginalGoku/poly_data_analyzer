@@ -452,6 +452,7 @@ class MainDashboardPage:
 
             game_card = [
                 html.H4(f"{manifest['outcomes'][0]} @ {manifest['outcomes'][1]}", style={"marginTop": 0}),
+                info_row("Match ID", match_id),
                 info_row("Sport", manifest.get("sport", "?").upper()),
                 info_row("Final", f"{manifest.get('is_final', '?')}"),
                 info_row("Trades", f"{volume.get('trade_count', len(trades_df)):,}"),

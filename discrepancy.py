@@ -44,6 +44,10 @@ def compute_market_score_discrepancies(
     away_trades = trades_df[trades_df["asset"] == away_token].sort_values("datetime").copy()
     if away_trades.empty:
         return None
+    away_trades["datetime"] = (
+        pd.to_datetime(away_trades["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
     game_start = min(ev["time_actual_dt"] for ev in score_events)
     game_end = max(ev["time_actual_dt"] for ev in score_events) + timedelta(
         minutes=float(getattr(settings, "post_game_buffer_min", 10))
@@ -61,6 +65,10 @@ def compute_market_score_discrepancies(
             "home_score": [int(ev.get("home_score") or 0) for ev in score_events],
         }
     ).sort_values("datetime")
+    score_df["datetime"] = (
+        pd.to_datetime(score_df["datetime"], utc=True)
+        .astype("datetime64[ns, UTC]")
+    )
     score_df["score_state"] = score_df.apply(
         lambda row: _score_state(int(row["away_score"]), int(row["home_score"])),
         axis=1,
