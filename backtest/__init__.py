@@ -1,4 +1,16 @@
 """Dip-buy backtest framework."""
+from backtest.contracts import (
+    ComponentSpec,
+    Context,
+    Exit,
+    GameMeta,
+    LockSpec,
+    Position,
+    Scenario,
+    Trigger,
+)
+from backtest.registry import EXITS, TRIGGERS, UNIVERSE_FILTERS
+from backtest.scenarios import load_scenarios
 from backtest.backtest_baselines import (
     baseline_buy_at_open,
     baseline_buy_at_tipoff,
@@ -14,6 +26,18 @@ from backtest.backtest_universe import filter_upper_strong_universe
 from backtest.dip_entry_detection import find_dip_entry, find_exit
 
 __all__ = [
+    "Context",
+    "Trigger",
+    "Exit",
+    "Position",
+    "Scenario",
+    "LockSpec",
+    "ComponentSpec",
+    "GameMeta",
+    "UNIVERSE_FILTERS",
+    "TRIGGERS",
+    "EXITS",
+    "load_scenarios",
     "DipBuyBacktestConfig",
     "filter_upper_strong_universe",
     "find_dip_entry",
