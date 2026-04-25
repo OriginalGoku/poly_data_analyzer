@@ -11,6 +11,7 @@ def resolve_settlement(
     game_end,
     sport: str,
     settings,
+    entry_team: Optional[str] = None,
     open_favorite_team: Optional[str] = None,
 ) -> Tuple[Optional[float], str, bool]:
     """Resolve settlement for a game.
@@ -27,7 +28,8 @@ def resolve_settlement(
         game_end: Game end time
         sport: Sport code (e.g., "nba", "nhl", "mlb")
         settings: ChartSettings instance
-        open_favorite_team: Team name of the open favorite (from analytics)
+        entry_team: Team name held at entry (winner check compares against this)
+        open_favorite_team: Deprecated alias for entry_team (kept until Step 19)
 
     Returns:
         Tuple of (payout, method, settled)
@@ -35,6 +37,12 @@ def resolve_settlement(
         - method: "event_derived" or "unresolved"
         - settled: True if method 1 succeeded, False otherwise
     """
+    if entry_team is not None and open_favorite_team is not None:
+        raise TypeError(
+            "resolve_settlement: pass either entry_team or open_favorite_team, not both"
+        )
+    if entry_team is None:
+        entry_team = open_favorite_team
     if events is None or not events:
         return (None, "unresolved", False)
 
@@ -70,10 +78,10 @@ def resolve_settlement(
         else:
             return (None, "unresolved", False)
 
-        if open_favorite_team is None or winner_team is None:
+        if entry_team is None or winner_team is None:
             return (None, "unresolved", False)
 
-        payout = 1.0 if winner_team == open_favorite_team else 0.0
+        payout = 1.0 if winner_team == entry_team else 0.0
 
         return (payout, "event_derived", True)
 
