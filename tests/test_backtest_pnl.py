@@ -6,7 +6,7 @@ from backtest.backtest_pnl import compute_trade_pnl
 
 def test_compute_pnl_profitable_with_taker_fee():
     """Test profitable trade with taker fee."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.82, "exit_time": None, "hold_seconds": 60}
     settlement = (1.0, "event_derived", True)
 
@@ -33,7 +33,7 @@ def test_compute_pnl_profitable_with_taker_fee():
 
 def test_compute_pnl_loss():
     """Test losing trade."""
-    entry = {"entry_price": 0.85, "entry_time": None}
+    entry = {"entry_price": 0.85, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.83, "exit_time": None, "hold_seconds": 120}
     settlement = (0.0, "event_derived", True)
 
@@ -56,7 +56,7 @@ def test_compute_pnl_loss():
 
 def test_compute_pnl_maker_fee():
     """Test with maker fee (0% fee)."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.82, "exit_time": None, "hold_seconds": 60}
     settlement = None
 
@@ -76,7 +76,7 @@ def test_compute_pnl_maker_fee():
 
 def test_compute_pnl_no_settlement():
     """Test trade with no settlement."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.82, "exit_time": None, "hold_seconds": 60}
     settlement = None
 
@@ -96,7 +96,7 @@ def test_compute_pnl_no_settlement():
 
 def test_compute_pnl_unresolved_settlement():
     """Test trade with unresolved settlement."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.82, "exit_time": None, "hold_seconds": 60}
     settlement = (None, "unresolved", False)
 
@@ -116,7 +116,7 @@ def test_compute_pnl_unresolved_settlement():
 
 def test_compute_pnl_no_exit():
     """Test trade with no exit."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": None, "exit_time": None, "hold_seconds": 0}
     settlement = None
 
@@ -136,7 +136,7 @@ def test_compute_pnl_no_exit():
 
 def test_compute_pnl_roi_calculation():
     """Test ROI calculation."""
-    entry = {"entry_price": 0.50, "entry_time": None}
+    entry = {"entry_price": 0.50, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.55, "exit_time": None, "hold_seconds": 300}
     settlement = None
 
@@ -157,7 +157,7 @@ def test_compute_pnl_roi_calculation():
 
 def test_compute_pnl_two_sided_fee_formula():
     """Fee is applied on entry + exit, not exit-only."""
-    entry = {"entry_price": 0.80, "entry_time": None}
+    entry = {"entry_price": 0.80, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.90, "exit_time": None, "hold_seconds": 60}
     settlement = None
 
@@ -180,7 +180,7 @@ def test_compute_pnl_two_sided_fee_formula():
 
 def test_compute_pnl_zero_entry_price_no_div_error():
     """Entry price of 0 must not raise ZeroDivisionError; ROI is 0."""
-    entry = {"entry_price": 0.0, "entry_time": None}
+    entry = {"entry_price": 0.0, "entry_time": None, "team": "LAL", "token_id": "tok_lal", "side": "favorite"}
     exit_ = {"exit_price": 0.10, "exit_time": None, "hold_seconds": 60}
     settlement = None
 
@@ -194,3 +194,29 @@ def test_compute_pnl_zero_entry_price_no_div_error():
     )
 
     assert result["roi_pct"] == 0
+
+
+def test_compute_pnl_propagates_team_token_side():
+    """Entry team/token_id/side must round-trip into result."""
+    entry = {
+        "entry_price": 0.40,
+        "entry_time": None,
+        "team": "BOS",
+        "token_id": "tok_bos",
+        "side": "underdog",
+    }
+    exit_ = {"exit_price": 0.45, "exit_time": None, "hold_seconds": 90}
+    settlement = None
+
+    result = compute_trade_pnl(
+        entry=entry,
+        exit_=exit_,
+        settlement=settlement,
+        fee_model="maker",
+        fee_pct=0.0,
+        settings=None,
+    )
+
+    assert result["team"] == "BOS"
+    assert result["token_id"] == "tok_bos"
+    assert result["side"] == "underdog"
