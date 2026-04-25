@@ -1,4 +1,4 @@
-"""Tests for backtest results export."""
+"""Tests for backtest results export (per-position schema)."""
 import tempfile
 from pathlib import Path
 
@@ -10,145 +10,167 @@ from backtest.backtest_export import export_backtest_results
 
 @pytest.fixture
 def mock_results():
-    """Create mock backtest results."""
-    aggregated = pd.DataFrame(
+    per_position = pd.DataFrame(
         [
             {
-                "dip_threshold": 10,
-                "exit_type": "settlement",
-                "fee_model": "taker",
-                "total_games": 100,
-                "games_with_entry": 30,
-                "games_settled": 25,
-                "total_trades": 30,
-                "gross_roi_mean": 0.03,
-                "net_roi_mean": 0.025,
-                "win_rate": 0.6,
-                "avg_entry_price": 0.80,
-                "avg_hold_minutes": 15.0,
-            },
-        ]
-    )
-
-    per_game = pd.DataFrame(
-        [
-            {
-                "match_id": "nba_game_1",
+                "scenario_name": "dip_buy_favorite",
+                "sweep_axis_trigger.threshold_cents": 5,
                 "date": "2026-03-23",
+                "match_id": "nba_game_1",
                 "sport": "nba",
+                "side": "favorite",
+                "entry_team": "LAL",
+                "entry_token_id": "tok_1",
+                "entry_time": "2026-03-23T19:30:00",
                 "entry_price": 0.81,
+                "exit_time": "2026-03-23T20:30:00",
                 "exit_price": 0.87,
+                "exit_kind": "settlement",
+                "status": "filled",
+                "position_index_in_game": 0,
+                "settlement_payout": 1.0,
+                "pnl": 6.0,
                 "roi_pct": 0.07,
-                "settlement_occurred": True,
-                "true_pnl_cents": 19.0,
+                "hold_seconds": 3600,
+                "max_drawdown_cents": 1.5,
+                "baseline_buy_at_open_roi": 0.05,
+                "baseline_buy_at_tipoff_roi": 0.04,
+                "baseline_buy_first_ingame_roi": 0.06,
             },
             {
-                "match_id": "nba_game_2",
+                "scenario_name": "dip_buy_favorite",
+                "sweep_axis_trigger.threshold_cents": 10,
                 "date": "2026-03-24",
+                "match_id": "nba_game_2",
                 "sport": "nba",
-                "entry_price": None,
-                "exit_price": None,
-                "roi_pct": 0,
-                "settlement_occurred": False,
-                "true_pnl_cents": None,
+                "side": "favorite",
+                "entry_team": "BOS",
+                "entry_token_id": "tok_2",
+                "entry_time": "2026-03-24T19:30:00",
+                "entry_price": 0.75,
+                "exit_time": "2026-03-24T20:00:00",
+                "exit_price": 0.80,
+                "exit_kind": "tp_sl",
+                "status": "filled",
+                "position_index_in_game": 0,
+                "settlement_payout": None,
+                "pnl": 4.5,
+                "roi_pct": 0.06,
+                "hold_seconds": 1800,
+                "max_drawdown_cents": 0.5,
+                "baseline_buy_at_open_roi": 0.03,
+                "baseline_buy_at_tipoff_roi": 0.02,
+                "baseline_buy_first_ingame_roi": 0.04,
             },
         ]
     )
 
-    return aggregated, per_game
+    aggregation = pd.DataFrame(
+        [
+            {
+                "scenario_name": "dip_buy_favorite",
+                "sweep_axis_trigger.threshold_cents": 5,
+                "count": 1,
+                "mean_roi_pct": 0.07,
+                "win_rate": 1.0,
+                "mean_hold_seconds": 3600.0,
+                "mean_drawdown_cents": 1.5,
+                "forced_close_count": 0,
+            },
+            {
+                "scenario_name": "dip_buy_favorite",
+                "sweep_axis_trigger.threshold_cents": 10,
+                "count": 1,
+                "mean_roi_pct": 0.06,
+                "win_rate": 1.0,
+                "mean_hold_seconds": 1800.0,
+                "mean_drawdown_cents": 0.5,
+                "forced_close_count": 0,
+            },
+        ]
+    )
+
+    return per_position, aggregation
 
 
-def test_export_backtest_results(mock_results):
-    """Test exporting results."""
-    aggregated, per_game = mock_results
-
+def test_export_writes_all_files(mock_results):
+    per_position, aggregation = mock_results
     with tempfile.TemporaryDirectory() as tmpdir:
         export_backtest_results(
-            aggregated_df=aggregated,
-            per_game_df=per_game,
-            output_dir=tmpdir,
+            per_position_df=per_position,
+            aggregation_df=aggregation,
+            output_path=tmpdir,
+            heatmap_dims=("scenario_name", "sweep_axis_trigger.threshold_cents"),
         )
-
-        # Check files exist
-        assert Path(f"{tmpdir}/results_aggregated.csv").exists()
-        assert Path(f"{tmpdir}/results_aggregated.json").exists()
-        assert Path(f"{tmpdir}/results_per_game.csv").exists()
-        assert Path(f"{tmpdir}/results_per_game.json").exists()
-        assert Path(f"{tmpdir}/BACKTEST_SUMMARY.txt").exists()
-        assert Path(f"{tmpdir}/SCHEMA.md").exists()
+        assert Path(f"{tmpdir}/results_positions.csv").exists()
+        assert Path(f"{tmpdir}/results_positions.json").exists()
+        assert Path(f"{tmpdir}/results_aggregation.csv").exists()
+        assert Path(f"{tmpdir}/results_aggregation.json").exists()
         assert Path(f"{tmpdir}/roi_heatmap.html").exists()
 
 
-def test_export_csv_round_trip(mock_results):
-    """Test that CSV export/import round-trip works."""
-    aggregated, per_game = mock_results
+def test_per_position_csv_round_trip_preserves_columns(mock_results):
+    per_position, aggregation = mock_results
+    with tempfile.TemporaryDirectory() as tmpdir:
+        export_backtest_results(per_position, aggregation, tmpdir)
+        loaded = pd.read_csv(f"{tmpdir}/results_positions.csv")
+        assert len(loaded) == len(per_position)
+        assert "scenario_name" in loaded.columns
+        assert "sweep_axis_trigger.threshold_cents" in loaded.columns
+        assert "position_index_in_game" in loaded.columns
+        assert set(per_position.columns) == set(loaded.columns)
 
+
+def test_aggregation_csv_round_trip(mock_results):
+    per_position, aggregation = mock_results
+    with tempfile.TemporaryDirectory() as tmpdir:
+        export_backtest_results(per_position, aggregation, tmpdir)
+        loaded = pd.read_csv(f"{tmpdir}/results_aggregation.csv")
+        assert len(loaded) == len(aggregation)
+        assert "scenario_name" in loaded.columns
+        assert "mean_roi_pct" in loaded.columns
+
+
+def test_json_round_trip(mock_results):
+    per_position, aggregation = mock_results
+    with tempfile.TemporaryDirectory() as tmpdir:
+        export_backtest_results(per_position, aggregation, tmpdir)
+        pos_loaded = pd.read_json(f"{tmpdir}/results_positions.json")
+        agg_loaded = pd.read_json(f"{tmpdir}/results_aggregation.json")
+        assert len(pos_loaded) == len(per_position)
+        assert len(agg_loaded) == len(aggregation)
+
+
+def test_heatmap_2d_renders(mock_results):
+    per_position, aggregation = mock_results
+    extra = aggregation.copy()
+    extra["scenario_name"] = "another_scenario"
+    extra["mean_roi_pct"] = [0.02, 0.03]
+    agg_2d = pd.concat([aggregation, extra], ignore_index=True)
     with tempfile.TemporaryDirectory() as tmpdir:
         export_backtest_results(
-            aggregated_df=aggregated,
-            per_game_df=per_game,
-            output_dir=tmpdir,
+            per_position,
+            agg_2d,
+            tmpdir,
+            heatmap_dims=("scenario_name", "sweep_axis_trigger.threshold_cents"),
         )
-
-        # Read back CSV
-        agg_loaded = pd.read_csv(f"{tmpdir}/results_aggregated.csv")
-        per_game_loaded = pd.read_csv(f"{tmpdir}/results_per_game.csv")
-
-        assert len(agg_loaded) == len(aggregated)
-        assert len(per_game_loaded) == len(per_game)
+        assert Path(f"{tmpdir}/roi_heatmap.html").exists()
 
 
-def test_export_json_round_trip(mock_results):
-    """Test that JSON export/import round-trip works."""
-    aggregated, per_game = mock_results
-
+def test_heatmap_missing_axis_falls_back_to_1xN(mock_results):
+    per_position, aggregation = mock_results
     with tempfile.TemporaryDirectory() as tmpdir:
         export_backtest_results(
-            aggregated_df=aggregated,
-            per_game_df=per_game,
-            output_dir=tmpdir,
+            per_position,
+            aggregation,
+            tmpdir,
+            heatmap_dims=("scenario_name", "nonexistent_axis"),
         )
-
-        # Read back JSON
-        agg_loaded = pd.read_json(f"{tmpdir}/results_aggregated.json")
-        per_game_loaded = pd.read_json(f"{tmpdir}/results_per_game.json")
-
-        assert len(agg_loaded) == len(aggregated)
-        assert len(per_game_loaded) == len(per_game)
+        assert Path(f"{tmpdir}/roi_heatmap.html").exists()
 
 
-def test_export_summary_content(mock_results):
-    """Test summary document content."""
-    aggregated, per_game = mock_results
-
+def test_heatmap_skipped_when_dims_none(mock_results):
+    per_position, aggregation = mock_results
     with tempfile.TemporaryDirectory() as tmpdir:
-        export_backtest_results(
-            aggregated_df=aggregated,
-            per_game_df=per_game,
-            output_dir=tmpdir,
-        )
-
-        with open(f"{tmpdir}/BACKTEST_SUMMARY.txt", "r") as f:
-            summary = f.read()
-
-        assert "Total games tested" in summary
-        assert "Best performer" in summary
-
-
-def test_export_schema_documentation(mock_results):
-    """Test schema documentation generation."""
-    aggregated, per_game = mock_results
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        export_backtest_results(
-            aggregated_df=aggregated,
-            per_game_df=per_game,
-            output_dir=tmpdir,
-        )
-
-        with open(f"{tmpdir}/SCHEMA.md", "r") as f:
-            schema = f.read()
-
-        assert "dip_threshold" in schema
-        assert "roi_pct" in schema
-        assert "settlement_occurred" in schema
+        export_backtest_results(per_position, aggregation, tmpdir, heatmap_dims=None)
+        assert not Path(f"{tmpdir}/roi_heatmap.html").exists()
