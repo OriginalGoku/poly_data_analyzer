@@ -33,11 +33,13 @@ from backtest.exits.settlement import settlement  # noqa: E402
 from backtest.exits.reversion_to_open import reversion_to_open  # noqa: E402
 from backtest.exits.reversion_to_partial import reversion_to_partial  # noqa: E402
 from backtest.exits.fixed_profit import fixed_profit  # noqa: E402
+from backtest.exits.tp_sl import tp_sl  # noqa: E402
 
 EXITS["settlement"] = settlement
 EXITS["reversion_to_open"] = reversion_to_open
 EXITS["reversion_to_partial"] = reversion_to_partial
 EXITS["fixed_profit"] = fixed_profit
+EXITS["tp_sl"] = tp_sl
 
 __all__ = [
     "ExitScanner",
@@ -45,4 +47,5 @@ __all__ = [
     "reversion_to_open",
     "reversion_to_partial",
     "fixed_profit",
+    "tp_sl",
 ]
