@@ -1,0 +1,32 @@
+{
+  "name": "favorite_drop_50pct_unbounded_tp_sl",
+  "description": "Unbounded post-tipoff favorite-drop with TP/SL and scale-in; no max hold",
+  "universe_filter": {
+    "name": "first_k_above",
+    "params": {"k": 5, "min_price": 0.80}
+  },
+  "side_target": "favorite",
+  "trigger": {
+    "name": "pct_drop_window",
+    "params": {
+      "anchor": "open",
+      "drop_pct": 50.0,
+      "window_seconds_after_tipoff": null
+    }
+  },
+  "exit": {
+    "name": "tp_sl",
+    "params": {
+      "take_profit_cents": 10,
+      "stop_loss_cents": 10,
+      "max_hold_seconds": null
+    }
+  },
+  "lock": {
+    "mode": "scale_in",
+    "max_entries": 3,
+    "cool_down_seconds": 60,
+    "allow_re_arm_after_stop_loss": true
+  },
+  "fee_model": "taker"
+}

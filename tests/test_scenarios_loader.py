@@ -103,6 +103,34 @@ def test_bare_list_treated_as_literal(tmp_path):
     assert out["bare"].sweep_axes == {}
 
 
+def test_favorite_drop_50pct_scenarios_parse_and_reference_live_components():
+    import backtest.filters  # noqa: F401  (populate registries)
+    import backtest.triggers  # noqa: F401
+    import backtest.exits  # noqa: F401
+    from backtest.registry import UNIVERSE_FILTERS, TRIGGERS, EXITS
+
+    scenarios = load_scenarios("backtest/scenarios")
+
+    bounded = scenarios["favorite_drop_50pct_60min_tp_sl"]
+    assert bounded.universe_filter.name in UNIVERSE_FILTERS
+    assert bounded.trigger.name in TRIGGERS
+    assert bounded.exit.name in EXITS
+    assert bounded.universe_filter.name == "first_k_above"
+    assert bounded.trigger.name == "pct_drop_window"
+    assert bounded.exit.name == "tp_sl"
+    assert bounded.side_target == "favorite"
+    assert bounded.trigger.params["window_seconds_after_tipoff"] == [0, 3600]
+    assert bounded.exit.params["max_hold_seconds"] == 3600
+    assert bounded.lock.mode == "scale_in"
+
+    unbounded = scenarios["favorite_drop_50pct_unbounded_tp_sl"]
+    assert unbounded.universe_filter.name in UNIVERSE_FILTERS
+    assert unbounded.trigger.name in TRIGGERS
+    assert unbounded.exit.name in EXITS
+    assert unbounded.trigger.params["window_seconds_after_tipoff"] is None
+    assert unbounded.exit.params["max_hold_seconds"] is None
+
+
 def test_missing_required_key_raises(tmp_path):
     raw = _base_scenario(name="bad")
     del raw["fee_model"]
