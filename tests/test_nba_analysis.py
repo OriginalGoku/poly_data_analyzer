@@ -264,7 +264,7 @@ def test_summary_and_grouped_outcome_metrics_handle_missing_coverage(tmp_path):
     assert bool(full_row["open_favorite_won"]) is True
     assert bool(full_row["tipoff_favorite_won"]) is True
     assert full_row["final_winner"] == "Home"
-    assert missing_row["final_winner"] is None
+    assert pd.isna(missing_row["final_winner"])
     assert bool(missing_row["has_outcome"]) is False
     assert bool(missing_row["open_prediction_available"]) is False
     assert bool(missing_row["tipoff_prediction_available"]) is False

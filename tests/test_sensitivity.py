@@ -279,7 +279,8 @@ class TestSensitivityCache:
 
         assert df is not None
         assert len(df) == 2
-        assert str(df["event_time"].dtype).startswith("datetime64[ns, UTC]")
+        assert isinstance(df["event_time"].dtype, pd.DatetimeTZDtype)
+        assert str(df["event_time"].dt.tz) == "UTC"
 
     def test_legacy_cache_without_leader_columns_recomputes(self, tmp_path):
         base = _base_time()
