@@ -13,7 +13,7 @@ from backtest.contracts import Context, Exit, Trigger
 from backtest.registry import EXITS
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExitScanner:
     """Stateful scanner that resolves a trigger to an Exit (or None).
 

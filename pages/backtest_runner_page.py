@@ -441,9 +441,9 @@ def _run_backtest_thread(sport, start_date, end_date, thresholds, anchors, exit_
 
         output_dir = RESULTS_DIR / output_folder
         export_backtest_results(
-            aggregated_df=agg_df,
-            per_game_df=per_game_df,
-            output_dir=str(output_dir),
+            per_position_df=per_game_df,
+            aggregation_df=agg_df,
+            output_path=str(output_dir),
         )
 
         _run_state["output_dir"] = str(output_dir)

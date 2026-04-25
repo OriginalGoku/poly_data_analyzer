@@ -79,4 +79,5 @@ def _render_heatmap(
         )
         fig.write_html(str(out_file))
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).exception("heatmap render failed")

@@ -66,11 +66,22 @@ def main() -> None:
     parser.add_argument("--output", default="backtest_output", help="Output directory")
     parser.add_argument("--scenarios-dir", default="backtest/scenarios",
                         help="Directory of scenario JSON files")
+    parser.add_argument("--heatmap-row", default=None,
+                        help="Aggregation column for heatmap rows (optional)")
+    parser.add_argument("--heatmap-col", default=None,
+                        help="Aggregation column for heatmap cols (optional)")
+    parser.add_argument("--heatmap-metric", default="mean_roi_pct",
+                        help="Aggregation metric column for heatmap")
 
     args = parser.parse_args()
 
-    start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
-    end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
+    try:
+        start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
+        end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
+    except ValueError as e:
+        raise SystemExit(f"invalid date (expected YYYY-MM-DD): {e}")
+    if end_date < start_date:
+        raise SystemExit(f"--end-date {args.end_date} is before --start-date {args.start_date}")
 
     available = load_scenarios(args.scenarios_dir)
     if not available:
@@ -99,10 +110,17 @@ def main() -> None:
     logger.info("Completed: %d positions, %d aggregated rows",
                 len(per_position_df), len(aggregation_df))
 
+    heatmap_dims = (
+        (args.heatmap_row, args.heatmap_col)
+        if args.heatmap_row and args.heatmap_col
+        else None
+    )
     export_backtest_results(
         per_position_df=per_position_df,
         aggregation_df=aggregation_df,
         output_path=str(output_dir),
+        heatmap_dims=heatmap_dims,
+        metric=args.heatmap_metric,
     )
     logger.info("Results exported to %s/", output_dir)
 

@@ -228,7 +228,11 @@ def _run_scenarios_thread(scenario_names, start_date, end_date, folder_name):
         from backtest.runner import run as runner_run
         from backtest.scenarios import load_scenarios
 
-        chart_settings = load_chart_settings(SETTINGS_PATH).to_dict()
+        chart_settings = (
+            load_chart_settings(SETTINGS_PATH).to_dict()
+            if SETTINGS_PATH.exists()
+            else {}
+        )
         all_scenarios = load_scenarios(SCENARIOS_DIR)
         selected = [all_scenarios[n] for n in scenario_names if n in all_scenarios]
         if not selected:
