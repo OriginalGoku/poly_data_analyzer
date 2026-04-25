@@ -323,3 +323,66 @@ def test_universe_cached_across_scenarios(register_components):
     )
     # Same universe_filter spec → cached once.
     assert call_counter["n"] == 1
+
+
+def _underdog_scenario(name: str, trigger_name: str, threshold_cents: int) -> Scenario:
+    return Scenario(
+        name=name,
+        universe_filter=ComponentSpec("test_uni", {}),
+        side_target="underdog",
+        trigger=ComponentSpec(trigger_name, {"threshold_cents": threshold_cents}),
+        exit=ComponentSpec("test_noop_exit", {}),
+        lock=LockSpec(mode="sequential", max_entries=1, cool_down_seconds=0.0),
+        fee_model="taker",
+    )
+
+
+def test_run_non_favorite_side_emits_nan_baselines(register_components):
+    """Per runner._build_row: non-favorite side_target → all baseline_*_roi are NaN."""
+    add_trigger, add_exit, add_universe = register_components
+    add_trigger("test_dip", _one_shot_trigger_factory(team="AAA"))
+    add_exit("test_noop_exit", _noop_exit_factory)
+    add_universe("test_uni", lambda s, e, p: [_make_game_meta("2025-03-01", "g1")])
+
+    scenarios = [_underdog_scenario("ud", "test_dip", 10)]
+    per_position_df, _ = runner.run(
+        scenarios=scenarios,
+        start_date=datetime(2025, 3, 1),
+        end_date=datetime(2025, 3, 1),
+        data_dir="data",
+        settings={},
+        context_builder=_build_context,
+    )
+    assert len(per_position_df) == 1
+    row = per_position_df.iloc[0]
+    assert row["side"] == "underdog"
+    import math
+    assert math.isnan(row["baseline_buy_at_open_roi"])
+    assert math.isnan(row["baseline_buy_at_tipoff_roi"])
+    assert math.isnan(row["baseline_buy_first_ingame_roi"])
+
+
+def test_run_skips_when_context_builder_returns_none(register_components):
+    """If context_builder returns None for a game, that game is skipped silently."""
+    add_trigger, add_exit, add_universe = register_components
+    add_trigger("test_dip", _one_shot_trigger_factory(team="AAA"))
+    add_exit("test_noop_exit", _noop_exit_factory)
+    games = [_make_game_meta("2025-03-01", "g1"), _make_game_meta("2025-03-02", "g2")]
+    add_universe("test_uni", lambda s, e, p: list(games))
+
+    def builder_returns_none_for_g2(gm, scen, data_dir, settings):
+        if gm.match_id == "g2":
+            return None
+        return _build_context(gm, scen, data_dir, settings)
+
+    scenarios = [_scenario("a", "test_dip", 10)]
+    per_position_df, _ = runner.run(
+        scenarios=scenarios,
+        start_date=datetime(2025, 3, 1),
+        end_date=datetime(2025, 3, 2),
+        data_dir="data",
+        settings={},
+        context_builder=builder_returns_none_for_g2,
+    )
+    assert len(per_position_df) == 1
+    assert per_position_df.iloc[0]["match_id"] == "g1"

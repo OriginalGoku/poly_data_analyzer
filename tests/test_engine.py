@@ -16,7 +16,7 @@ from backtest.contracts import (
     Scenario,
     Trigger,
 )
-from backtest.engine import run_scenario_on_game
+from backtest.engine import fee_pct_for, run_scenario_on_game
 from backtest.registry import EXITS, TRIGGERS
 
 
@@ -258,3 +258,55 @@ def test_trigger_returns_none_breaks_loop(register_components):
     positions = run_scenario_on_game(scen, ctx)
 
     assert len(positions) == 1
+
+
+# ------------------- fee_pct_for + early-return tests -------------------
+
+
+def test_fee_pct_for_default_taker():
+    assert fee_pct_for("taker") == pytest.approx(0.002)
+
+
+def test_fee_pct_for_default_maker():
+    assert fee_pct_for("maker") == pytest.approx(0.0)
+
+
+def test_fee_pct_for_unknown_model_raises():
+    with pytest.raises(ValueError, match="Unknown fee_model"):
+        fee_pct_for("not_a_model")
+
+
+def test_fee_pct_for_settings_keyed_override():
+    assert fee_pct_for("taker", {"fee_taker_pct": 0.005}) == pytest.approx(0.005)
+
+
+def test_fee_pct_for_settings_fees_mapping():
+    assert fee_pct_for("taker", {"fees": {"taker": 0.01}}) == pytest.approx(0.01)
+
+
+def test_fee_pct_for_settings_allows_unknown_model_when_provided():
+    assert fee_pct_for("custom", {"fee_custom_pct": 0.003}) == pytest.approx(0.003)
+
+
+def test_run_scenario_returns_empty_when_no_tipoff(register_components):
+    import dataclasses
+    add_trigger, add_exit = register_components
+    add_trigger("test_every", _every_5s_trigger)
+    add_exit("test_noop", _noop_exit_factory)
+    scen = _scenario(
+        "no_tipoff", LockSpec(mode="sequential"), "test_every", "test_noop"
+    )
+    ctx = dataclasses.replace(_build_ctx(scen), tipoff_time=None)
+    assert run_scenario_on_game(scen, ctx) == []
+
+
+def test_run_scenario_returns_empty_when_no_game_end(register_components):
+    import dataclasses
+    add_trigger, add_exit = register_components
+    add_trigger("test_every", _every_5s_trigger)
+    add_exit("test_noop", _noop_exit_factory)
+    scen = _scenario(
+        "no_end", LockSpec(mode="sequential"), "test_every", "test_noop"
+    )
+    ctx = dataclasses.replace(_build_ctx(scen), game_end=None)
+    assert run_scenario_on_game(scen, ctx) == []
