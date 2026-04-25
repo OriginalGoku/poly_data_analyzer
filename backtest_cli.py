@@ -1,131 +1,110 @@
-"""CLI entry point for backtest execution."""
+"""CLI entry point for scenario-based backtest execution."""
+from __future__ import annotations
+
 import argparse
+import fnmatch
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List
 
-from tqdm import tqdm
-
-from backtest.backtest_config import DipBuyBacktestConfig
 from backtest.backtest_export import export_backtest_results
-from backtest.backtest_runner import run_backtest_grid
+from backtest.contracts import Scenario
+from backtest.runner import run
+from backtest.scenarios import load_scenarios
 from settings import load_chart_settings
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(description="Run dip-buy backtest")
-    parser.add_argument("--start-date", required=True, help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end-date", required=True, help="End date (YYYY-MM-DD)")
-    parser.add_argument(
-        "--dip-thresholds",
-        default="10,15,20",
-        help="Comma-separated dip thresholds in cents",
-    )
-    parser.add_argument(
-        "--exit-types",
-        default="settlement",
-        help="Comma-separated exit types",
-    )
-    parser.add_argument(
-        "--fee-models",
-        default="taker",
-        help="Comma-separated fee models (taker/maker)",
-    )
-    parser.add_argument(
-        "--dip-anchors",
-        default="open",
-        help="Comma-separated dip anchors (open/tipoff)",
-    )
-    parser.add_argument("--sport", default="nba", help="Sport filter (nba/nhl/mlb/all)")
-    parser.add_argument("--output", default="backtest_results", help="Output directory")
+def _select_scenarios(
+    available: Dict[str, Scenario],
+    names: List[str],
+    glob_pattern: str | None,
+) -> List[Scenario]:
+    if not names and not glob_pattern:
+        raise SystemExit("must specify --scenario or --scenarios-glob")
+
+    selected: Dict[str, Scenario] = {}
+
+    if names:
+        for requested in names:
+            matched = [
+                s for s in available.values()
+                if s.name == requested or s.name.startswith(f"{requested}__")
+            ]
+            if not matched:
+                raise SystemExit(f"unknown scenario: {requested}")
+            for s in matched:
+                selected[s.name] = s
+
+    if glob_pattern:
+        matched = [s for s in available.values() if fnmatch.fnmatch(s.name, glob_pattern)]
+        if not matched:
+            raise SystemExit(f"no scenarios match glob: {glob_pattern}")
+        for s in matched:
+            selected[s.name] = s
+
+    return list(selected.values())
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run scenario-based backtest")
+    parser.add_argument("--scenario", action="append", default=[],
+                        help="Scenario name (repeatable)")
+    parser.add_argument("--scenarios-glob", default=None,
+                        help="Glob pattern matching scenario names")
+    parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--end-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--data-dir", default="data", help="Data directory")
+    parser.add_argument("--output", default="backtest_output", help="Output directory")
+    parser.add_argument("--scenarios-dir", default="backtest/scenarios",
+                        help="Directory of scenario JSON files")
 
     args = parser.parse_args()
 
-    # Parse arguments
     start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
     end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
-    dip_thresholds = tuple(int(x.strip()) for x in args.dip_thresholds.split(","))
-    exit_types = [x.strip() for x in args.exit_types.split(",")]
-    fee_models = [x.strip() for x in args.fee_models.split(",")]
-    dip_anchors = [x.strip() for x in args.dip_anchors.split(",")]
 
-    # Build configs
-    configs = []
-    for exit_type in exit_types:
-        for fee_model in fee_models:
-            for dip_anchor in dip_anchors:
-                config = DipBuyBacktestConfig(
-                    dip_thresholds=dip_thresholds,
-                    dip_anchor=dip_anchor,
-                    exit_type=exit_type,
-                    fee_model=fee_model,
-                    sport_filter=args.sport,
-                )
-                configs.append(config)
+    available = load_scenarios(args.scenarios_dir)
+    if not available:
+        raise SystemExit(f"no scenarios found in {args.scenarios_dir}")
 
-    logger.info(f"Running backtest from {args.start_date} to {args.end_date}")
-    logger.info(f"Configs: {len(configs)} (exits: {set(c.exit_type for c in configs)}, fees: {set(c.fee_model for c in configs)})")
-    logger.info(f"Data directory: {args.data_dir}")
+    selected = _select_scenarios(available, args.scenario, args.scenarios_glob)
+    logger.info("Selected %d scenario(s): %s", len(selected), [s.name for s in selected])
 
-    # Create dated subfolder for results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    sport_tag = args.sport if args.sport != "all" else "all"
-    folder_name = f"{args.start_date}_{args.end_date}_{sport_tag}_{timestamp}"
-    output_dir = Path(args.output) / folder_name
-    logger.info(f"Results will be saved to: {output_dir}/")
-
-    # Load chart settings for consistent open price computation
     settings_path = Path(__file__).parent / "chart_settings.json"
-    chart_settings = load_chart_settings(settings_path).to_dict()
+    settings = load_chart_settings(settings_path).to_dict() if settings_path.exists() else {}
 
-    # Run grid with progress bar
-    logger.info("Loading universe and running backtests...")
-    agg_df, per_game_df = run_backtest_grid(
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder = f"{args.start_date}_{args.end_date}_{timestamp}"
+    output_dir = Path(args.output) / folder
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Results will be saved to %s/", output_dir)
+
+    per_position_df, aggregation_df = run(
+        scenarios=selected,
         start_date=start_date,
         end_date=end_date,
-        configs=configs,
         data_dir=args.data_dir,
-        verbose=True,
-        pregame_min_cum_vol=chart_settings.get("pregame_min_cum_vol", 5000),
-        open_anchor_stat=chart_settings.get("open_anchor_stat", "vwap"),
-        open_anchor_window_min=chart_settings.get("open_anchor_window_min", 5),
+        settings=settings,
     )
 
-    logger.info(f"\n✓ Completed {len(per_game_df)} games")
+    logger.info("Completed: %d positions, %d aggregated rows",
+                len(per_position_df), len(aggregation_df))
 
-    # Log summary stats
-    if not per_game_df.empty:
-        if "entry_price" in per_game_df.columns:
-            games_with_entry = (per_game_df["entry_price"].notna()).sum()
-            games_settled = (per_game_df["settlement_occurred"] == True).sum() if "settlement_occurred" in per_game_df.columns else 0
-            logger.info(f"  Games with dip entry triggered: {games_with_entry}")
-            logger.info(f"  Games with settlement: {games_settled}")
-            if games_with_entry > 0:
-                logger.info(f"  Mean ROI (with entry): {per_game_df[per_game_df['entry_price'].notna()]['roi_pct'].mean():.2%}")
-
-    logger.info(f"Aggregated results: {len(agg_df)} strategy combinations tested")
-
-    # Export
     export_backtest_results(
-        aggregated_df=agg_df,
-        per_game_df=per_game_df,
+        aggregated_df=aggregation_df,
+        per_game_df=per_position_df,
         output_dir=str(output_dir),
     )
-
-    logger.info(f"Results exported to {output_dir}/")
+    logger.info("Results exported to %s/", output_dir)
 
 
 if __name__ == "__main__":

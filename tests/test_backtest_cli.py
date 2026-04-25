@@ -1,191 +1,131 @@
-"""Tests for backtest CLI."""
-import argparse
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+"""Tests for the scenario-based backtest CLI."""
+from __future__ import annotations
 
+from datetime import datetime
+from unittest.mock import patch
+
+import pandas as pd
 import pytest
 
-from backtest.backtest_cli import main
+from backtest_cli import main
 
 
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_basic_invocation(mock_export, mock_run_grid):
-    """Test basic CLI invocation with minimal arguments."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
+def _stub_run(*args, **kwargs):
+    return pd.DataFrame(), pd.DataFrame()
 
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-    ]):
+
+def test_cli_parses_scenario_flag(tmp_path):
+    captured = {}
+
+    def fake_run(scenarios, start_date, end_date, data_dir, settings=None):
+        captured["scenarios"] = list(scenarios)
+        captured["start_date"] = start_date
+        captured["end_date"] = end_date
+        captured["data_dir"] = data_dir
+        return pd.DataFrame(), pd.DataFrame()
+
+    with patch("backtest_cli.run", side_effect=fake_run), \
+         patch("backtest_cli.export_backtest_results") as mock_export, \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--scenario", "dip_buy_favorite",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-02",
+             "--data-dir", "data",
+             "--output", str(tmp_path),
+         ]):
         main()
 
-    mock_run_grid.assert_called_once()
+    assert captured["start_date"] == datetime(2024, 1, 1)
+    assert captured["end_date"] == datetime(2024, 1, 2)
+    assert captured["data_dir"] == "data"
+    # dip_buy_favorite has a 3-value sweep on threshold_cents
+    assert len(captured["scenarios"]) == 3
+    for s in captured["scenarios"]:
+        assert s.name.startswith("dip_buy_favorite")
     mock_export.assert_called_once()
-    args, kwargs = mock_run_grid.call_args
-    assert kwargs["start_date"] == datetime(2024, 1, 1)
-    assert kwargs["end_date"] == datetime(2024, 1, 31)
 
 
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_custom_thresholds(mock_export, mock_run_grid):
-    """Test CLI with custom dip thresholds."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
+def test_cli_scenarios_glob(tmp_path):
+    captured = {}
 
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--dip-thresholds", "5,10,15,20",
-    ]):
+    def fake_run(scenarios, **kwargs):
+        captured["scenarios"] = list(scenarios)
+        return pd.DataFrame(), pd.DataFrame()
+
+    with patch("backtest_cli.run", side_effect=fake_run), \
+         patch("backtest_cli.export_backtest_results"), \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--scenarios-glob", "dip_buy_favorite*",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-02",
+             "--output", str(tmp_path),
+         ]):
         main()
 
-    args, kwargs = mock_run_grid.call_args
-    configs = kwargs["configs"]
-    # Should have 1 exit type * 1 fee model = 1 config
-    assert len(configs) == 1
-    assert configs[0].dip_thresholds == (5, 10, 15, 20)
+    assert len(captured["scenarios"]) >= 1
+    assert all(s.name.startswith("dip_buy_favorite") for s in captured["scenarios"])
 
 
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_multiple_exit_types(mock_export, mock_run_grid):
-    """Test CLI with multiple exit types."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
+def test_cli_rejects_unknown_scenario(tmp_path):
+    with patch("backtest_cli.run", side_effect=_stub_run), \
+         patch("backtest_cli.export_backtest_results"), \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--scenario", "does_not_exist",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-02",
+             "--output", str(tmp_path),
+         ]):
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert "unknown scenario" in str(excinfo.value)
 
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--exit-types", "settlement,profit_target",
-    ]):
+
+def test_cli_requires_scenario_or_glob(tmp_path):
+    with patch("backtest_cli.run", side_effect=_stub_run), \
+         patch("backtest_cli.export_backtest_results"), \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-02",
+             "--output", str(tmp_path),
+         ]):
+        with pytest.raises(SystemExit):
+            main()
+
+
+def test_cli_unknown_glob_rejected(tmp_path):
+    with patch("backtest_cli.run", side_effect=_stub_run), \
+         patch("backtest_cli.export_backtest_results"), \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--scenarios-glob", "no_such_scenario_*",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-02",
+             "--output", str(tmp_path),
+         ]):
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert "no scenarios match" in str(excinfo.value)
+
+
+def test_cli_smoke_creates_output_files(tmp_path):
+    """End-to-end smoke: runner is mocked but export is real; verify output files."""
+    with patch("backtest_cli.run", side_effect=_stub_run), \
+         patch("sys.argv", [
+             "backtest_cli",
+             "--scenario", "dip_buy_favorite",
+             "--start-date", "2024-01-01",
+             "--end-date", "2024-01-01",
+             "--output", str(tmp_path),
+         ]):
         main()
 
-    args, kwargs = mock_run_grid.call_args
-    configs = kwargs["configs"]
-    # Should have 2 exit types * 1 fee model = 2 configs
-    assert len(configs) == 2
-    assert configs[0].exit_type == "settlement"
-    assert configs[1].exit_type == "profit_target"
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_multiple_fee_models(mock_export, mock_run_grid):
-    """Test CLI with multiple fee models."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--fee-models", "taker,maker",
-    ]):
-        main()
-
-    args, kwargs = mock_run_grid.call_args
-    configs = kwargs["configs"]
-    # Should have 1 exit type * 2 fee models = 2 configs
-    assert len(configs) == 2
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_sport_filter(mock_export, mock_run_grid):
-    """Test CLI with sport filter."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--sport", "mlb",
-    ]):
-        main()
-
-    args, kwargs = mock_run_grid.call_args
-    configs = kwargs["configs"]
-    assert all(cfg.sport_filter == "mlb" for cfg in configs)
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_data_dir(mock_export, mock_run_grid):
-    """Test CLI with custom data directory."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--data-dir", "/custom/data",
-    ]):
-        main()
-
-    args, kwargs = mock_run_grid.call_args
-    assert kwargs["data_dir"] == "/custom/data"
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_output_dir(mock_export, mock_run_grid):
-    """Test CLI with custom output directory."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--output", "/custom/output",
-    ]):
-        main()
-
-    mock_export.assert_called_once()
-    args, kwargs = mock_export.call_args
-    assert kwargs["output_dir"] == "/custom/output"
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_date_parsing(mock_export, mock_run_grid):
-    """Test CLI date argument parsing."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-06-15",
-        "--end-date", "2024-12-31",
-    ]):
-        main()
-
-    args, kwargs = mock_run_grid.call_args
-    assert kwargs["start_date"] == datetime(2024, 6, 15)
-    assert kwargs["end_date"] == datetime(2024, 12, 31)
-
-
-@patch("backtest_cli.run_backtest_grid")
-@patch("backtest_cli.export_backtest_results")
-def test_cli_complex_grid(mock_export, mock_run_grid):
-    """Test CLI with complex grid of parameters."""
-    mock_run_grid.return_value = (MagicMock(), MagicMock())
-
-    with patch("sys.argv", [
-        "backtest_cli",
-        "--start-date", "2024-01-01",
-        "--end-date", "2024-01-31",
-        "--dip-thresholds", "5,10",
-        "--exit-types", "settlement,profit_target",
-        "--fee-models", "taker,maker",
-    ]):
-        main()
-
-    args, kwargs = mock_run_grid.call_args
-    configs = kwargs["configs"]
-    # Should have 2 exit types * 2 fee models = 4 configs
-    assert len(configs) == 4
-
-    # Verify all combinations are present
-    combinations = [(cfg.dip_thresholds, cfg.exit_type, cfg.fee_model) for cfg in configs]
-    assert ((5, 10), "settlement", "taker") in [(c[0], c[1], c[2]) for c in combinations]
+    # Find the dated subfolder.
+    subdirs = [p for p in tmp_path.iterdir() if p.is_dir()]
+    assert len(subdirs) == 1
+    out = subdirs[0]
+    assert (out / "results_aggregated.csv").exists()
+    assert (out / "results_per_game.csv").exists()
