@@ -20,17 +20,34 @@ python app.py                     # run Dash app on localhost:8050
 - `loaders.py` -- Data loading and parsing
 - `whales.py` -- Whale wallet identification, classification, filtering, and maker/taker trade-size stats
 
-### Backtest Framework
-- `backtest_cli.py` -- CLI entry point; parses date range, dip thresholds, exit types, fee models, and sport filters
-- `backtest_config.py` -- `DipBuyBacktestConfig` frozen dataclass; defines parameters (dip thresholds, exit types, fee model, sport filter)
-- `backtest_runner.py` -- Grid orchestration; loads games by date range, runs each config, aggregates results
-- `backtest_single_game.py` -- Single-game backtest; detects dips, applies exit logic, computes PnL for one game/config
-- `backtest_baselines.py` -- Baseline strategies for comparison (buy-at-open, buy-at-tipoff, buy-first-in-game)
-- `backtest_universe.py` -- Universe filtering; e.g., `filter_upper_strong_universe()` for favorable market opens
-- `dip_entry_detection.py` -- Trade-level dip touch detection; finds first in-game price at or below open-price minus threshold
-- `backtest_settlement.py` -- Resolves settlement prices from events and trades; handles market closes and outcomes
-- `backtest_pnl.py` -- Computes trade-level PnL including slippage and Polymarket fees
-- `backtest_export.py` -- Exports aggregated results (CSV/JSON) and generates heatmap visualizations
+### Backtest Framework (legacy; slated for removal in Step 19)
+- `backtest/backtest_cli.py` -- legacy CLI; parses date range, dip thresholds, exit types, fee models, sport filters
+- `backtest/backtest_config.py` -- `DipBuyBacktestConfig` frozen dataclass
+- `backtest/backtest_runner.py` -- legacy grid orchestration
+- `backtest/backtest_single_game.py` -- legacy single-game orchestration
+- `backtest/backtest_baselines.py` -- baseline strategies (buy-at-open, buy-at-tipoff, buy-first-in-game)
+- `backtest/backtest_universe.py` -- legacy universe filtering
+- `backtest/dip_entry_detection.py` -- legacy dip touch detection
+- `backtest/backtest_settlement.py` -- resolves settlement prices from events/trades
+- `backtest/backtest_pnl.py` -- trade-level PnL with Polymarket fees
+- `backtest/backtest_export.py` -- CSV/JSON export and heatmap visualizations
+- UI pages: `pages/backtest_runner_page.py`, `pages/backtest_results_page.py`
+
+### New Backtest Engine (parallel to legacy; scenario-driven)
+Generic JSON-scenario-driven engine. Components are pluggable and decorator-registered; scenarios composed from filter/trigger/exit specs. Both engines are wired up; legacy will be deleted in Step 19 after the manual 2-week gate.
+- `backtest/contracts.py` -- frozen dataclass contracts: `Context`, `Trigger`, `Exit`, `Position`, `Scenario`, `LockSpec`, `ComponentSpec`, `GameMeta`
+- `backtest/registry.py` -- three component registries: `UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`
+- `backtest/scenarios.py` -- scenario JSON loader with sweep expansion (parameter grids fan out into multiple scenarios)
+- `backtest/scenarios/*.json` -- scenario definitions (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`, `favorite_drop_50pct_unbounded_tp_sl.json`)
+- `backtest/filters/` -- universe filters (`upper_strong.py`, `first_k_above.py`)
+- `backtest/triggers/` -- entry triggers (`dip_below_anchor.py`, `pct_drop_window.py`)
+- `backtest/exits/` -- exits (`settlement.py`, `reversion_to_open.py`, `reversion_to_partial.py`, `fixed_profit.py`, `tp_sl.py`)
+- `backtest/position_manager.py` -- `PositionManager`; supports `sequential` and `scale_in` lock modes
+- `backtest/engine.py` -- registry-dispatched per-game loop; force-closes open positions at `game_end`
+- `backtest/runner.py` -- orchestrates scenarios over a date range; produces per-position DataFrame plus aggregation DataFrame
+- Side-aware: `scenario.side_target = "favorite" | "underdog"`
+- New CLI flags: `--scenario`, `--scenarios-glob`, `--start-date`, `--end-date`, `--data-dir`, `--output`
+- UI pages: `pages/scenario_runner_page.py` (`/scenario-runner`), `pages/scenario_results_page.py` (`/scenario-results`)
 
 ### Configuration
 - `chart_settings.json` -- Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)

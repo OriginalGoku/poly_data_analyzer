@@ -81,6 +81,10 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 
 ## Backtest Framework
 
+Two engines coexist: the legacy dip-buy framework (described first) and a newer generic scenario-driven engine (see "New Scenario-Driven Backtest Engine" below). The legacy engine is wired up in parallel and slated for removal in Step 19 after a 2-week gating period.
+
+### Legacy: Dip-Buy Framework
+
 Complete dip-buy backtesting system for evaluating entry and exit strategies on historical Polymarket sports trade data.
 
 ### Entry Points & Configuration
@@ -153,6 +157,66 @@ Complete dip-buy backtesting system for evaluating entry and exit strategies on 
   - **JSON exports**: Same data as JSON for programmatic analysis
   - **Heatmap visualization**: Dip threshold (rows) vs exit type (columns), colored by return %; separate heatmaps for each fee model and sport
 - Visualizations use Plotly subplots with sorted rows/columns for readability
+
+## New Scenario-Driven Backtest Engine
+
+Generic, JSON-scenario-driven backtester running parallel to the legacy framework. Components are pluggable and decorator-registered; scenarios compose from `universe_filter` + `triggers` + `exits` specs.
+
+### Contracts (`backtest/contracts.py`)
+
+Frozen dataclasses defining the public surface:
+- `Context` -- per-game evaluation state passed to filters/triggers/exits
+- `Trigger`, `Exit` -- abstract bases each component implements
+- `Position` -- entry record with side, anchor, fees applied
+- `LockSpec` -- locking policy for the `PositionManager`; `mode = "sequential" | "scale_in"`
+- `ComponentSpec` -- `{name, params}` reference resolved against a registry
+- `Scenario` -- top-level scenario: `name`, `side_target` (`"favorite" | "underdog"`), `universe_filter`, `triggers`, `exits`, `lock`, `sport`, fee model
+- `GameMeta` -- summary fields used by filters and aggregation
+
+### Registry (`backtest/registry.py`)
+
+Three name -> class registries: `UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`. Components register themselves at import time via decorator.
+
+### Components
+
+- `backtest/filters/` -- universe filters (`upper_strong.py`, `first_k_above.py`)
+- `backtest/triggers/` -- entry triggers (`dip_below_anchor.py`, `pct_drop_window.py`)
+- `backtest/exits/` -- exits (`settlement.py`, `reversion_to_open.py`, `reversion_to_partial.py`, `fixed_profit.py`, `tp_sl.py`)
+
+### Scenario Loader (`backtest/scenarios.py`)
+
+- Reads JSON scenario definitions from `backtest/scenarios/*.json`
+- Supports parameter sweeps: a list under any `params` key fans out into the cartesian product of `Scenario` instances
+- Returns a flat list of fully-resolved `Scenario` objects
+
+### Position Manager (`backtest/position_manager.py`)
+
+Owns open positions and applies the scenario's `LockSpec`:
+- `sequential` -- only one open position at a time per scenario; new triggers ignored while locked
+- `scale_in` -- multiple concurrent positions allowed up to a configured cap
+
+### Engine (`backtest/engine.py`)
+
+Per-game loop:
+1. Apply `universe_filter` against `GameMeta`; skip if rejected
+2. Walk in-game trades chronologically, evaluating triggers
+3. On trigger fire, open `Position` via `PositionManager`
+4. Each tick, evaluate active exits per position
+5. Force-close any still-open positions at `game_end` and tag with `forced_close`
+
+### Runner (`backtest/runner.py`)
+
+- Loads games over `[start_date, end_date]` using existing loaders
+- Runs each `Scenario` through `engine.run_game(...)` for every game
+- Returns:
+  - per-position DataFrame (one row per closed position, all metadata)
+  - aggregation DataFrame (one row per scenario; counts, mean ROI, win rate, etc.)
+- CLI flags: `--scenario`, `--scenarios-glob`, `--start-date`, `--end-date`, `--data-dir`, `--output`
+
+### UI
+
+- `pages/scenario_runner_page.py` -- `/scenario-runner`; pick a scenario JSON, set date range, kick off a run
+- `pages/scenario_results_page.py` -- `/scenario-results`; browse aggregated results and per-position records produced by the runner
 
 ### `whales.py` -- Whale Analysis
 

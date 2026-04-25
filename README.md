@@ -73,6 +73,27 @@ python backtest_cli.py \
 
 Results include aggregated statistics (return %, win rate, Sharpe ratio) and per-game trade records.
 
+### Scenario-Driven Backtest Engine (new, parallel to legacy)
+
+A second, more general engine runs alongside the legacy dip-buy framework. Strategies are described as JSON scenarios composed of a universe filter, one or more triggers, and one or more exits, each resolved against a component registry.
+
+- Component registries (`backtest/registry.py`): `UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`
+- Scenario JSON files: `backtest/scenarios/*.json` (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`)
+- Position manager supports `sequential` and `scale_in` lock modes
+- Side-aware: each scenario targets `"favorite"` or `"underdog"`
+- UI: `/scenario-runner` to launch runs, `/scenario-results` to browse outputs
+
+```bash
+python -m backtest.runner \
+  --scenario backtest/scenarios/dip_buy_favorite.json \
+  --start-date 2026-03-01 \
+  --end-date 2026-04-01 \
+  --data-dir data \
+  --output backtest_results/scenario_dip_buy_favorite
+```
+
+The legacy dip-buy framework (above) remains wired up; both engines are usable side-by-side until the legacy framework is removed.
+
 ## Project Structure
 
 ```
