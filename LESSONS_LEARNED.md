@@ -15,3 +15,4 @@
 - Exit type implementations with multiple compounding bugs (off-by-one in time anchor + wrong duration constant + skipped sport branch) are harder to fix than to remove if no production users exist. Delete cleanly rather than patch incrementally.
 - Post-game trade data often contains settlement-price spikes that are not real price movements. Exit searches must be bounded to `< game_end` to prevent these artifacts from triggering spurious exits and inflating returns.
 - Aggregated gross ROI should be derived from `gross_pnl / (entry_price * 100)` directly, not from the net `roi_pct` column, or fees will be double-counted in the mean metric.
+- For pluggable components (filters/triggers/exits), keep the param schema next to the component itself as a `PARAM_SCHEMA` list and expose it through a parallel `*_SCHEMAS` registry. Builder UIs render inputs from the schema without duplicating it; adding a new component costs only the new file plus a one-line registration.

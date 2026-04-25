@@ -36,7 +36,7 @@ python app.py                     # run Dash app on localhost:8050
 ### New Backtest Engine (parallel to legacy; scenario-driven)
 Generic JSON-scenario-driven engine. Components are pluggable and decorator-registered; scenarios composed from filter/trigger/exit specs. Both engines are wired up; legacy will be deleted in Step 19 after the manual 2-week gate.
 - `backtest/contracts.py` -- frozen dataclass contracts: `Context`, `Trigger`, `Exit`, `Position`, `Scenario`, `LockSpec`, `ComponentSpec`, `GameMeta`
-- `backtest/registry.py` -- three component registries: `UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`
+- `backtest/registry.py` -- three component registries (`UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`) plus parallel `*_SCHEMAS` dicts that expose each component's `PARAM_SCHEMA` for the builder UI
 - `backtest/scenarios.py` -- scenario JSON loader with sweep expansion (parameter grids fan out into multiple scenarios)
 - `backtest/scenarios/*.json` -- scenario definitions (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`, `favorite_drop_50pct_unbounded_tp_sl.json`)
 - `backtest/filters/` -- universe filters (`upper_strong.py`, `first_k_above.py`)
@@ -47,7 +47,8 @@ Generic JSON-scenario-driven engine. Components are pluggable and decorator-regi
 - `backtest/runner.py` -- orchestrates scenarios over a date range; produces per-position DataFrame plus aggregation DataFrame
 - Side-aware: `scenario.side_target = "favorite" | "underdog"`
 - New CLI flags: `--scenario`, `--scenarios-glob`, `--start-date`, `--end-date`, `--data-dir`, `--output`
-- UI pages: `pages/scenario_runner_page.py` (`/scenario-runner`), `pages/scenario_results_page.py` (`/scenario-results`)
+- UI pages: `pages/scenario_builder_page.py` (`/scenario-builder`), `pages/scenario_runner_page.py` (`/scenario-runner`), `pages/scenario_results_page.py` (`/scenario-results`)
+- Each filter/trigger/exit module declares a `PARAM_SCHEMA = [...]` constant (typed: `int|float|bool|enum|int_pair|nullable_int`, with optional `sweepable: True`); subpackage `__init__.py` registers it alongside the callable. Builder UI renders inputs from these schemas — no UI-side duplication.
 
 ### Configuration
 - `chart_settings.json` -- Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)

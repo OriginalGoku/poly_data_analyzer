@@ -215,8 +215,11 @@ Per-game loop:
 
 ### UI
 
+- `pages/scenario_builder_page.py` -- `/scenario-builder`; guided form that picks filter/trigger/exit/lock/fee_model, renders typed param inputs from each component's `PARAM_SCHEMA`, supports per-field sweep toggles, previews and saves to `backtest/scenarios/<slug>.json`
 - `pages/scenario_runner_page.py` -- `/scenario-runner`; pick a scenario JSON, set date range, kick off a run
 - `pages/scenario_results_page.py` -- `/scenario-results`; browse aggregated results and per-position records produced by the runner
+
+Each registered component module declares a `PARAM_SCHEMA = [...]` constant (typed entries: `int | float | bool | enum | int_pair | nullable_int`; sweepable fields opt in via `"sweepable": True`). The subpackage `__init__.py` registers the schema in `UNIVERSE_FILTER_SCHEMAS` / `TRIGGER_SCHEMAS` / `EXIT_SCHEMAS` next to the callable so the builder UI renders inputs without duplicating schemas.
 
 ### `whales.py` -- Whale Analysis
 

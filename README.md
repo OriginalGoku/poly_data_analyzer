@@ -81,7 +81,7 @@ A second, more general engine runs alongside the legacy dip-buy framework. Strat
 - Scenario JSON files: `backtest/scenarios/*.json` (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`)
 - Position manager supports `sequential` and `scale_in` lock modes
 - Side-aware: each scenario targets `"favorite"` or `"underdog"`
-- UI: `/scenario-runner` to launch runs, `/scenario-results` to browse outputs
+- UI: `/scenario-builder` to author scenario JSONs via guided form (with per-field sweep toggles), `/scenario-runner` to launch runs, `/scenario-results` to browse outputs
 
 ```bash
 python -m backtest.runner \
