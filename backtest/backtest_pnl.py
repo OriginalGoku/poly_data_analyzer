@@ -15,7 +15,7 @@ def compute_trade_pnl(
     """Compute PnL metrics for a trade.
 
     Args:
-        entry: Dict with entry_price and entry_time
+        entry: Dict with entry_price, entry_time, team, token_id, side
         exit_: Dict with exit_price, exit_time, hold_seconds
         settlement: Tuple of (payout, method, settled) from resolve_settlement;
                    or None
@@ -26,12 +26,16 @@ def compute_trade_pnl(
     Returns:
         Dict with PnL metrics:
         - entry_price, exit_price
+        - team, token_id, side (propagated from entry)
         - gross_pnl_cents, net_pnl_cents
         - roi_pct, hold_seconds
         - settlement_method, settlement_occurred
         - true_pnl_cents (only if settled)
     """
     entry_price = entry.get("entry_price")
+    team = entry["team"]
+    token_id = entry["token_id"]
+    side = entry["side"]
     exit_price = exit_.get("exit_price")
     hold_seconds = exit_.get("hold_seconds", 0)
 
@@ -63,6 +67,9 @@ def compute_trade_pnl(
     return {
         "entry_price": entry_price,
         "exit_price": exit_price,
+        "team": team,
+        "token_id": token_id,
+        "side": side,
         "gross_pnl_cents": gross_pnl_cents,
         "net_pnl_cents": net_pnl_cents,
         "roi_pct": roi_pct,
