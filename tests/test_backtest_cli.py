@@ -127,5 +127,5 @@ def test_cli_smoke_creates_output_files(tmp_path):
     subdirs = [p for p in tmp_path.iterdir() if p.is_dir()]
     assert len(subdirs) == 1
     out = subdirs[0]
-    assert (out / "results_aggregated.csv").exists()
-    assert (out / "results_per_game.csv").exists()
+    assert (out / "results_aggregation.csv").exists()
+    assert (out / "results_positions.csv").exists()

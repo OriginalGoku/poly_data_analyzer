@@ -100,9 +100,9 @@ def main() -> None:
                 len(per_position_df), len(aggregation_df))
 
     export_backtest_results(
-        aggregated_df=aggregation_df,
-        per_game_df=per_position_df,
-        output_dir=str(output_dir),
+        per_position_df=per_position_df,
+        aggregation_df=aggregation_df,
+        output_path=str(output_dir),
     )
     logger.info("Results exported to %s/", output_dir)
 
