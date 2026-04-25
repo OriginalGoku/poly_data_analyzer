@@ -40,3 +40,13 @@
 - Baselines inherit fee_model from config instead of hardcoding "taker"
 
 ---
+
+## [plan_file: Backtest_Engine_Redesign_Technical_Plan.md] 2026-04-25
+**Summary:** Rip-and-replace the dip-buy backtester with a generic, JSON-scenario-driven engine where universe filters, triggers, and exits are independently registered components and scale-in (multi-position) per game is first-class.
+**Key decisions:**
+- Three per-stage registries (UNIVERSE_FILTERS / TRIGGERS / EXITS); no monolithic Strategy class
+- Scale-in is first-class via PositionManager with sequential and scale_in lock modes
+- Every Exit has a real exit_time; no-fill cases force-close at game_end with status="forced_close"
+- Scenario JSON with `{"sweep": [...]}` leaves expanded into Cartesian concrete scenarios; one row per Position in output
+
+---
