@@ -1,0 +1,27 @@
+{
+  "name": "dip_buy_favorite",
+  "description": "Reproduces dip-buy logic on the favorite side; holds to settlement.",
+  "universe_filter": {
+    "name": "upper_strong",
+    "params": {"min_open_favorite_price": 0.85}
+  },
+  "side_target": "favorite",
+  "trigger": {
+    "name": "dip_below_anchor",
+    "params": {
+      "anchor": "open",
+      "threshold_cents": {"sweep": [10, 15, 20]}
+    }
+  },
+  "exit": {
+    "name": "settlement",
+    "params": {}
+  },
+  "lock": {
+    "mode": "scale_in",
+    "max_entries": 5,
+    "cool_down_seconds": 0,
+    "allow_re_arm_after_stop_loss": true
+  },
+  "fee_model": "default"
+}
