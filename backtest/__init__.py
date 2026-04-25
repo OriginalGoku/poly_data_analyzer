@@ -11,6 +11,8 @@ from backtest.contracts import (
 )
 from backtest.registry import EXITS, TRIGGERS, UNIVERSE_FILTERS
 from backtest import triggers as _triggers  # noqa: F401  (registers triggers)
+from backtest import exits as _exits  # noqa: F401  (registers exits)
+from backtest import filters as _filters  # noqa: F401  (registers universe filters)
 from backtest.scenarios import load_scenarios
 from backtest.backtest_baselines import (
     baseline_buy_at_open,
