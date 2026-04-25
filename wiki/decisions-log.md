@@ -58,3 +58,16 @@
 **Lesson:** When a plan step modifies an aggregation formula that consumes per-trade result objects, audit every existing mock/fixture for that object type before writing new tests — missing fields in mocks will fail silently at the mock level and loudly only at assertion time.
 
 ---
+
+## [plan_file: Backtest_Engine_Redesign_Technical_Plan.md] Executed 2026-04-25
+**Mode:** parallel (6 waves) | **Result:** 18 of 19 steps completed (Step 19 is a manual-gated 2-week sunset, intentionally deferred)
+**PRs:** #1–#18 (all squash-merged to main)
+**Salience:** HIGH
+**Modules:** backtest/, backtest/exits/, backtest/filters/, backtest/triggers/, backtest/scenarios.py, backtest_cli.py, backtest_export.py, tests/
+**Notable:** Test count grew 205 -> 324 with no new regressions (the 13 remaining failures match the pre-existing baseline set; Step 18 incidentally fixed the prior `test_backtest_cli.py` collection error). Four notable execution surprises: (1) GitHub squash-merges diverged local/origin when the plan-commit was unpushed but PRs branched from it — required `git pull --rebase` to reconcile on first wave. (2) Step 4 making team/token_id/side required transiently broke 11 old-engine tests; Step 6 fixed 7 baseline ones; the 4 single_game ones stay broken until the deferred Step 19 sunset. (3) Wave 4 ran the export rewrite (Step 16) and CLI rewrite (Step 18) in parallel from the same base; CLI was written against the pre-#16 export signature and produced a runtime TypeError that the orchestrator caught in post-merge tests and patched. (4) Filters/triggers package init files didn't auto-register because top-level `backtest/__init__.py` wasn't importing the new sub-packages — orchestrator patched after Wave 2 by adding explicit `import backtest.exits` / `import backtest.filters` lines.
+**Corrections:** Orchestrator patched two coordination bugs after merges (CLI<->export signature mismatch; package registry not populating on `import backtest`). Bash HEREDOC quoting bug corrupted Wave 2 prompts via unquoted backticks expanding as command substitution; resolved by switching to single-quoted HEREDOCs.
+**Reversals:** none
+**Discoveries:** Two parallel agents (Step 8, Step 10) silently expanded scope beyond their declared `Files:` lists — Step 8 modified `backtest/__init__.py`, Step 10 added a ValueError to `backtest/scenarios.py` for empty sweep. Both were benign improvements but indicate parallel agents will quietly fix adjacent issues without flagging.
+**Lesson:** When orchestrating parallel waves where steps share a downstream consumer (e.g. export <-> CLI), force the consumer's wave to start strictly after the producer's signature lands — a same-base parallel split between a function rewrite and its caller is a guaranteed runtime break. Also: any plan that introduces a new sub-package with auto-registration via `__init__.py` must include an explicit step to wire the parent package's `__init__.py` to import it, or registries will silently stay empty under partial imports.
+
+---
