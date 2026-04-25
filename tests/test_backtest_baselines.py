@@ -1,4 +1,5 @@
 """Tests for baseline strategy implementations."""
+import math
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -271,3 +272,90 @@ def test_baseline_buy_at_open_pregame_only_trades(game_data):
     # No in-game trades → exit is None
     assert result["exit_price"] is None
     assert result["hold_seconds"] == 0
+
+
+def _assert_skipped_non_favorite(result):
+    assert result["status"] == "skipped_non_favorite"
+    assert result["side"] == "underdog"
+    assert result["team"] is None
+    assert result["token_id"] is None
+    assert result["settlement_occurred"] is False
+    assert result["settlement_method"] is None
+    for key in (
+        "entry_price",
+        "exit_price",
+        "gross_pnl_cents",
+        "net_pnl_cents",
+        "roi_pct",
+        "hold_seconds",
+        "fee_cost_cents",
+        "true_pnl_cents",
+    ):
+        assert math.isnan(result[key]), f"{key} should be NaN"
+
+
+def test_baseline_buy_at_open_underdog_short_circuits(game_data):
+    result = baseline_buy_at_open(
+        open_price=0.92,
+        trades_df=game_data["trades_df"],
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.002,
+        settings=None,
+        entry_team="LAL",
+        side="underdog",
+    )
+    _assert_skipped_non_favorite(result)
+
+
+def test_baseline_buy_at_tipoff_underdog_short_circuits(game_data):
+    result = baseline_buy_at_tipoff(
+        tipoff_price=0.91,
+        trades_df=game_data["trades_df"],
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.002,
+        settings=None,
+        entry_team="LAL",
+        side="underdog",
+    )
+    _assert_skipped_non_favorite(result)
+
+
+def test_baseline_buy_first_ingame_underdog_short_circuits(game_data):
+    result = baseline_buy_first_ingame(
+        trades_df=game_data["trades_df"],
+        tipoff_time=game_data["tipoff_time"],
+        game_end=game_data["game_end"],
+        manifest=game_data["manifest"],
+        events=game_data["events"],
+        sport="nba",
+        fee_pct=0.002,
+        settings=None,
+        entry_team="LAL",
+        side="underdog",
+    )
+    _assert_skipped_non_favorite(result)
+
+
+def test_baseline_rejects_both_entry_team_and_open_favorite_team(game_data):
+    with pytest.raises(TypeError):
+        baseline_buy_at_open(
+            open_price=0.92,
+            trades_df=game_data["trades_df"],
+            tipoff_time=game_data["tipoff_time"],
+            game_end=game_data["game_end"],
+            manifest=game_data["manifest"],
+            events=game_data["events"],
+            sport="nba",
+            fee_pct=0.002,
+            settings=None,
+            entry_team="LAL",
+            open_favorite_team="LAL",
+        )
