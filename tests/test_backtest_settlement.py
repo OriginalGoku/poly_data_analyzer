@@ -271,3 +271,67 @@ def test_resolve_settlement_unsupported_sport(nba_manifest):
 
     assert settled is False
     assert method == "unresolved"
+
+
+def test_resolve_settlement_entry_team_kw(nba_manifest, nba_events_away_wins):
+    """Canonical kw `entry_team` resolves correctly."""
+    payout, method, settled = resolve_settlement(
+        manifest=nba_manifest,
+        events=nba_events_away_wins,
+        trades_df=None,
+        game_end=None,
+        sport="nba",
+        settings=None,
+        entry_team="LAL",
+    )
+
+    assert settled is True
+    assert method == "event_derived"
+    assert payout == 1.0
+
+
+def test_resolve_settlement_underdog_wins(nba_manifest, nba_events_away_wins):
+    """Underdog held on away side wins → payout=1.0."""
+    payout, _, settled = resolve_settlement(
+        manifest=nba_manifest,
+        events=nba_events_away_wins,
+        trades_df=None,
+        game_end=None,
+        sport="nba",
+        settings=None,
+        entry_team="LAL",
+    )
+
+    assert settled is True
+    assert payout == 1.0
+
+
+def test_resolve_settlement_underdog_loses(nba_manifest, nba_events_home_wins):
+    """Underdog held on away side loses → payout=0.0."""
+    payout, _, settled = resolve_settlement(
+        manifest=nba_manifest,
+        events=nba_events_home_wins,
+        trades_df=None,
+        game_end=None,
+        sport="nba",
+        settings=None,
+        entry_team="LAL",
+    )
+
+    assert settled is True
+    assert payout == 0.0
+
+
+def test_resolve_settlement_rejects_both_kwargs(nba_manifest, nba_events_away_wins):
+    """Passing both entry_team and open_favorite_team raises TypeError."""
+    with pytest.raises(TypeError):
+        resolve_settlement(
+            manifest=nba_manifest,
+            events=nba_events_away_wins,
+            trades_df=None,
+            game_end=None,
+            sport="nba",
+            settings=None,
+            entry_team="LAL",
+            open_favorite_team="LAL",
+        )
