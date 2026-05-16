@@ -28,6 +28,12 @@ class ExitScanner:
     def scan(self, ctx: Context, now: datetime) -> Optional[Exit]:
         return self._scan_fn(ctx, self.trigger, self.params, now)
 
+    # PositionManager calls slot.exit_scanner(ctx, now) directly; engine-only
+    # closure exits also use that form. Expose both so ExitScanner instances
+    # are interchangeable with bare callables in the slot.
+    def __call__(self, ctx: Context, now: datetime) -> Optional[Exit]:
+        return self.scan(ctx, now)
+
 
 from backtest.exits.settlement import settlement, PARAM_SCHEMA as _settlement_schema  # noqa: E402
 from backtest.exits.reversion_to_open import reversion_to_open, PARAM_SCHEMA as _reversion_to_open_schema  # noqa: E402

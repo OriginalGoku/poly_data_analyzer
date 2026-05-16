@@ -73,6 +73,10 @@ def run_scenario_on_game(scenario: Scenario, ctx: Context) -> List[Position]:
         next_index += 1
         cursor = trigger.trigger_time + pd.Timedelta(microseconds=1)
 
+    # Final tick at game_end so scanner-driven exits (e.g., reversion_to_open)
+    # get a chance to see the full trade tape before any remaining open
+    # positions are force-closed.
+    pm.tick(ctx, game_end)
     pm.force_close_all(game_end)
 
     positions = pm.positions()
