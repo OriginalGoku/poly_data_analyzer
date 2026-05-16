@@ -26,6 +26,8 @@ _run_state = {
     "progress_msg": "",
     "scenarios_done": 0,
     "scenarios_total": 0,
+    "games_done": 0,
+    "games_total": 0,
 }
 
 
@@ -173,6 +175,8 @@ class ScenarioRunnerPage:
             _run_state["progress_msg"] = "Starting..."
             _run_state["scenarios_done"] = 0
             _run_state["scenarios_total"] = len(scenario_names)
+            _run_state["games_done"] = 0
+            _run_state["games_total"] = 0
 
             thread = threading.Thread(
                 target=_run_scenarios_thread,
@@ -197,15 +201,23 @@ class ScenarioRunnerPage:
         )
         def poll_status(n_intervals):
             if _run_state["running"]:
-                done = _run_state["scenarios_done"]
-                total = _run_state["scenarios_total"]
+                scen_done = _run_state["scenarios_done"]
+                scen_total = _run_state["scenarios_total"]
+                game_done = _run_state["games_done"]
+                game_total = _run_state["games_total"]
                 msg = _run_state["progress_msg"]
-                if total > 0:
-                    bar_filled = int(done / total * 20)
+                scen_label = (
+                    f"Scenario {min(scen_done + 1, scen_total)}/{scen_total}"
+                    if scen_total > 0
+                    else "Scenario ?/?"
+                )
+                header = f"{scen_label} \u2014 {msg}"
+                if game_total > 0:
+                    bar_filled = int(game_done / game_total * 20)
                     bar = "[" + "#" * bar_filled + "-" * (20 - bar_filled) + "]"
-                    line = f"{bar} {done}/{total} scenarios\n  {msg}"
+                    line = f"{header}\n  {bar} {game_done}/{game_total} games"
                 else:
-                    line = f"  {msg}"
+                    line = header
                 return f"Running scenarios...\n\n{line}", no_update, no_update
 
             if _run_state["error"]:
@@ -241,9 +253,11 @@ def _run_scenarios_thread(scenario_names, start_date, end_date, folder_name):
         sd = datetime.strptime(start_date[:10], "%Y-%m-%d")
         ed = datetime.strptime(end_date[:10], "%Y-%m-%d")
 
-        def progress_callback(done, total, msg):
-            _run_state["scenarios_done"] = int(done)
-            _run_state["scenarios_total"] = int(total)
+        def progress_callback(scen_done, scen_total, game_done, game_total, msg):
+            _run_state["scenarios_done"] = int(scen_done)
+            _run_state["scenarios_total"] = int(scen_total)
+            _run_state["games_done"] = int(game_done)
+            _run_state["games_total"] = int(game_total)
             _run_state["progress_msg"] = str(msg)
 
         per_position_df, aggregation_df = runner_run(

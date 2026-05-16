@@ -204,8 +204,8 @@ def test_run_grid_three_games_three_sweeps_produces_nine_positions(register_comp
 
     progress_calls: List[tuple] = []
 
-    def progress(done, total, name):
-        progress_calls.append((done, total, name))
+    def progress(scen_done, scen_total, game_done, game_total, name):
+        progress_calls.append((scen_done, scen_total, game_done, game_total, name))
 
     per_position_df, aggregation_df = runner.run(
         scenarios=scenarios,
@@ -271,9 +271,24 @@ def test_run_grid_three_games_three_sweeps_produces_nine_positions(register_comp
     assert per_position_df["baseline_buy_at_tipoff_roi"].notna().all()
     assert per_position_df["baseline_buy_first_ingame_roi"].notna().all()
 
-    # progress_callback called once per scenario.
-    assert len(progress_calls) == 3
-    assert progress_calls[-1][0] == 3 and progress_calls[-1][1] == 3
+    # progress_callback fires per scenario: 1 pre-loop + N per-game + 1 post-scenario.
+    # 3 scenarios x 3 games = 3 * (1 + 3 + 1) = 15 calls.
+    assert len(progress_calls) == 15
+    # Final call: scen_done == scen_total, game_done == game_total, "complete" message.
+    last = progress_calls[-1]
+    assert last[0] == 3 and last[1] == 3
+    assert last[2] == last[3]
+    assert "complete" in last[4]
+    # Per-scenario per-game emissions reach game_total.
+    per_scenario_max_game_done = {}
+    for scen_done, scen_total, game_done, game_total, _ in progress_calls:
+        per_scenario_max_game_done[scen_done] = max(
+            per_scenario_max_game_done.get(scen_done, 0), game_done
+        )
+    # For each scen_idx (0,1,2 during processing) we should see game_done reach 3.
+    assert per_scenario_max_game_done.get(0) == 3
+    assert per_scenario_max_game_done.get(1) == 3
+    assert per_scenario_max_game_done.get(2) == 3
 
 
 def test_run_empty_universe_returns_empty_dataframes(register_components):

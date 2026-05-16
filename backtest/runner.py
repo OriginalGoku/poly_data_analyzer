@@ -314,7 +314,7 @@ def run(
     end_date: datetime,
     data_dir: str,
     settings: Optional[Mapping[str, Any]] = None,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    progress_callback: Optional[Callable[[int, int, int, int, str], None]] = None,
     *,
     context_builder: Optional[Callable[[GameMeta, Scenario, str, Mapping[str, Any]], Optional[Context]]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -344,16 +344,39 @@ def run(
             )
         games = universes_cache[cache_key]
 
-        for gm in games:
+        if progress_callback is not None:
+            progress_callback(
+                scen_idx,
+                total,
+                0,
+                len(games),
+                f"{scenario.name}: loading universe ({len(games)} games)",
+            )
+
+        for game_idx, gm in enumerate(games):
             ctx = builder(gm, scenario, data_dir, settings)
-            if ctx is None:
-                continue
-            positions = run_scenario_on_game(scenario, ctx)
-            for pos in positions:
-                rows.append(_build_row(scenario, gm, ctx, pos, settings))
+            if ctx is not None:
+                positions = run_scenario_on_game(scenario, ctx)
+                for pos in positions:
+                    rows.append(_build_row(scenario, gm, ctx, pos, settings))
+
+            if progress_callback is not None:
+                progress_callback(
+                    scen_idx,
+                    total,
+                    game_idx + 1,
+                    len(games),
+                    f"{scenario.name}: {gm.date}/{gm.match_id}",
+                )
 
         if progress_callback is not None:
-            progress_callback(scen_idx + 1, total, scenario.name)
+            progress_callback(
+                scen_idx + 1,
+                total,
+                len(games),
+                len(games),
+                f"{scenario.name}: complete",
+            )
 
     sweep_cols = [f"sweep_axis_{ax}" for ax in sorted(sweep_axes_seen)]
     columns = list(PER_POSITION_BASE_COLUMNS)

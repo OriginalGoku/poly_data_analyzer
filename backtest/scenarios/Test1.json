@@ -1,0 +1,40 @@
+{
+  "name": "Test1",
+  "universe_filter": {
+    "name": "first_k_above",
+    "params": {
+      "k": 20,
+      "min_price": 0.85,
+      "exclude_inferred_price_quality": true,
+      "pregame_min_cum_vol": 5000,
+      "open_anchor_stat": "vwap",
+      "open_anchor_window_min": 5
+    }
+  },
+  "side_target": "favorite",
+  "trigger": {
+    "name": "pct_drop_window",
+    "params": {
+      "anchor": "tipoff",
+      "drop_pct": 20.0,
+      "window_seconds_after_tipoff": [
+        10,
+        3600
+      ]
+    }
+  },
+  "exit": {
+    "name": "fixed_profit",
+    "params": {
+      "profit_cents": 10
+    }
+  },
+  "lock": {
+    "mode": "sequential",
+    "max_entries": 1,
+    "cool_down_seconds": 60.0,
+    "allow_re_arm_after_stop_loss": true
+  },
+  "fee_model": "default",
+  "description": "Favorite >0.85 -> Drop 20% take profit 10 cent"
+}
