@@ -50,3 +50,45 @@
 - Scenario JSON with `{"sweep": [...]}` leaves expanded into Cartesian concrete scenarios; one row per Position in output
 
 ---
+
+## [plan_file: Scenario_Runner_Live_Progress_Plan.md] 2026-05-01
+**Summary:** Surface per-game progress on the `/scenario-runner` page so the UI no longer appears frozen during a run.
+**Key decisions:**
+- Per-game counter + current-item label (no log tail)
+- Bar resets per scenario; header carries `Scenario k/N`
+- Extend `progress_callback` arity to `(scen_done, scen_total, game_done, game_total, msg)` rather than add a new channel
+- Emit "loading universe" signal before the inner game loop to cover slow-filter cases
+
+---
+
+## [plan_file: NBA_Tipoff_Page_Performance_Plan/] 2026-05-15
+**Summary:** Speed up `/nba-open-tipoff-analysis` (currently ~5min for 99 date dirs) via persistent per-game disk cache, eliminating trades.json.gz double-read, repo-wide base cache, and removing the price-quality date-reset retrigger.
+**Key decisions:**
+- Persistent disk cache mirroring `sensitivity.py` / `dip_recovery.py` idiom (per-game JSON with schema_version + settings_hash)
+- Eliminate double gzip+JSON load by threading `loaders.load_game` output through the detail loop
+- Drop date-range from `_load_game_analytics_cached` key so overlapping ranges share work
+- Defer parallelism (ProcessPoolExecutor) until after caching + double-read fix — explicit user direction
+- Decouple `populate_dates` from `nba-analysis-price-quality` to stop silent retriggers
+
+---
+
+## [plan_file: features/statistical-odd-analyzer/technical-plan.md] 2026-05-16
+**Summary:** New Dash page `/nba-band-drop-recovery` showing a 2D grid (open band × drop magnitude) of P(price recovers to tipoff | first-touched X% drop), via sweep of the existing backtest engine.
+**Key decisions:**
+- Reuse `pct_drop_window` (anchor=tipoff) + `reversion_to_open` exit via a single sweep scenario; no parallel price-scanning code.
+- Sweep `drop_pct ∈ {10..95}`; cumulative buckets fall out of independent scenarios.
+- Aggregator joins engine positions ← cached base-records frame on (date, match_id) to attach `open_interpretable_band`; bands never recomputed.
+- Cell stats: recovery rate, N, Wilson 95% CI, median time-to-recovery, median further-drawdown; PnL/fee columns discarded.
+- Additive only — no changes to analytics, engine, or existing scenario files.
+
+---
+
+## [plan_file: Pregame_Volume_Filter_Plan/] 2026-05-16
+**Summary:** Add a hard pregame-volume gate to the main dashboard game-picker (driven by existing `pregame_min_cum_vol`) plus a soft `data_warning_min_pregame_vol` badge on the game-card to surface truncated trade data.
+**Key decisions:**
+- Reuse single `pregame_min_cum_vol` knob as both open-anchor threshold and game-list hard gate (no second knob)
+- Add separate soft threshold `data_warning_min_pregame_vol = 20000` for visible warning badge
+- Signal: `pre_game_notional_usdc` primary; badge also looks at `trade_count` (hardcoded < 50)
+- Gate applied as post-cache row mask in `get_analytics_view` (mirrors `start_date`/`end_date` pattern) — no new cache key
+
+---
