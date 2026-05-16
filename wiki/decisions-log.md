@@ -71,3 +71,46 @@
 **Lesson:** When orchestrating parallel waves where steps share a downstream consumer (e.g. export <-> CLI), force the consumer's wave to start strictly after the producer's signature lands — a same-base parallel split between a function rewrite and its caller is a guaranteed runtime break. Also: any plan that introduces a new sub-package with auto-registration via `__init__.py` must include an explicit step to wire the parent package's `__init__.py` to import it, or registries will silently stay empty under partial imports.
 
 ---
+
+## [plan_file: NBA_Tipoff_Page_Performance_Plan/technical-plan.md] Executed 2026-05-16
+**Mode:** sequential | **Result:** All 7 steps completed
+**PRs:** N/A (sequential mode, direct edits to main, uncommitted)
+**Salience:** HIGH
+**Modules:** analytics.py, pages/nba_tipoff_page.py, tests/test_analytics.py, tests/test_nba_tipoff_cache.py
+**Notable:** User chose sequential over plan's parallel-worktree mode for simplicity. Parquet dep absent (no pyarrow/fastparquet), so base-records cache uses pickle instead — works fine for this artifact. Test count 244 -> 252 (+1 quantile-band regression guard, +7 new cache tests).
+**Corrections:** none
+**Reversals:** none
+**Discoveries:** Plan's base-records cache only avoids one of two file reads on cross-cache warm path. To make warm path truly zero-IO, refactored `stream_game_analytics` to yield `(base_record, get_game)` with a memoized `get_game` callable, and threaded a `game_provider` parameter through `load_or_compute_nba_tipoff_detail`. This lazy-loader shape was not in the plan but is required for the caches to compose.
+**Lesson:** When stacking two caches over a shared upstream read, design the producer to yield a lazy accessor for the expensive payload — otherwise the second cache's hit path still pays the upstream IO cost. Pair semantic-preservation requirements (e.g., filter ordering for quantile bands) with a regression test in the same plan step so the invariant is enforced, not just documented.
+
+---
+
+## [plan_file: technical-plan.md] Executed 2026-05-16
+**Mode:** parallel (5 waves nominal; ran inline) | **Result:** All 7 steps completed
+**PRs:** N/A (committed directly to main)
+**Salience:** HIGH
+**Modules:** features/statistical-odd-analyzer, backtest/exits, backtest/engine, tests/
+**Notable:** Wiring band-drop-recovery exposed two latent backtest-engine bugs the plan assumed away. Test count 265 -> 288 (+23, 0 regressions).
+**Corrections:** none
+**Reversals:** none
+**Discoveries:** (1) `ExitScanner` dataclass instances were not callable, but `PositionManager` invoked them as callables — broken since introduction, masked because existing engine tests used plain closures. Fixed in `backtest/exits/__init__.py`. (2) `engine.run_game` never ticked `PositionManager` at `game_end` before `force_close`, so scanner-driven exits (e.g. `reversion_to_open`) never observed the full tape under `sequential` lock mode. Fixed in `backtest/engine.py`.
+**Lesson:** When a plan declares existing primitives "reusable as-is," add at least one integration test that exercises the full call path (PM.tick + dataclass-style exit + lock mode) before trusting the assumption — pure-unit tests of each layer in isolation will miss cross-component contract drift. Reach for the smallest end-to-end fixture, not more unit coverage.
+**Architecture gate output:**
+```text
+sentrux gate — structural regression check
+
+Quality:      6369 -> 6364
+Coupling:     0.02 → 0.02
+Cycles:       0 → 0
+God files:    0 → 0
+
+Distance from Main Sequence: 0.35
+
+✗ DEGRADED
+  ✗ Complex functions increased: 12 → 13
+```
+**Regressions introduced:** complex functions 12 -> 13 (advisory)
+**Regressions fixed:** none
+**Intentional tradeoffs:** Accepted one additional complex function for the band-drop-recovery wiring; quality score net-improved (6369 -> 6364, lower is better).
+
+---

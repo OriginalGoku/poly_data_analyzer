@@ -9,7 +9,7 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 ### `loaders.py` -- Data Loading
 
 - Scans `data/` for date directories, loads `manifest.json`, filters to collected NBA games
-- `load_game()` loads gzip-compressed trades/events files into a pandas DataFrame, parses events, builds tricode-to-team mapping by tracking score changes, parses gamma timestamps
+- `load_game()` loads gzip-compressed trades/events files into a pandas DataFrame, parses events, builds tricode-to-team mapping by tracking score changes, parses gamma timestamps. Heavy parsing factored into `build_loaded_game(data_dir, date, manifest, trades_data, outlier_settings)` so streaming callers can supply already-decompressed trades data and avoid a second disk read.
 - `_read_json()` helper auto-detects `.gz` suffix for transparent gzip/plain JSON reading
 - Returns a dict with manifest, trades DataFrame, events list, tricode map, and parsed timestamps
 
@@ -31,6 +31,17 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - NBA analysis can drop ultra-tight opens using `analysis_min_open_favorite_price`, and reports how many games were excluded by that rule
 - Exposes cached analytics records used by the UI controls and the game analytics card
 - Equal favorite-side prices are represented as `Tie` rather than defaulting to token order
+- `stream_game_analytics(...)` yields `(base_record, get_game)` per game, letting bulk pipelines (NBA tipoff) read each `trades.json.gz` exactly once while keeping RAM at one game at a time. The base-records frame persists across Dash restarts at `cache/_base_records/<settings_hash>.pkl` with a sidecar `<settings_hash>.manifest.json` recording each game's `input_fingerprint`; mismatched or new entries are rescanned, the rest hydrate from disk.
+- `get_analytics_view` cache key no longer includes `start_date`/`end_date`. The date filter is applied on `view` between the sport filter and the `quantile_source = view` assignment so quantile bands remain window-local; subsequent ranges in the same process are free.
+
+### `nba_tipoff_cache.py` -- NBA Tipoff Detail-Row Disk Cache
+
+- Persistent per-game cache for the `/nba-open-tipoff-analysis` detail rows
+- Path: `cache/<date>/<match_id>_nba_tipoff.json`
+- Payload: `{schema_version, settings_hash, input_fingerprint, row}`
+- `settings_hash` hashes the ChartSettings fields that influence the row (`pregame_min_cum_vol`, `vol_spike_std`, `vol_spike_lookback`, `post_game_buffer_min`, open-favorite team/price)
+- `input_fingerprint` hashes `(mtime_ns, size)` for the trades/manifest/events files; catches re-collected raw data. Unique to this cache among per-game caches because it backs the user-visible perf path.
+- `load_or_compute_nba_tipoff_detail(...)` accepts either an eager `game` dict or a lazy `game_provider` callable; cache hits skip the game load entirely.
 
 ### `charts.py` -- Chart Building
 
@@ -202,7 +213,7 @@ Per-game loop:
 2. Walk in-game trades chronologically, evaluating triggers
 3. On trigger fire, open `Position` via `PositionManager`
 4. Each tick, evaluate active exits per position
-5. Force-close any still-open positions at `game_end` and tag with `forced_close`
+5. At `game_end`, call `pm.tick(ctx, game_end)` one final time so scanner-driven exits (e.g., `reversion_to_open`) see the full trade tape before any remaining open positions are force-closed and tagged with `forced_close`. Skipping the final tick used to cause sequential-lock + scanner-driven exits to never fire on the last in-game tape segment.
 
 ### Runner (`backtest/runner.py`)
 
@@ -218,6 +229,7 @@ Per-game loop:
 - `pages/scenario_builder_page.py` -- `/scenario-builder`; guided form that picks filter/trigger/exit/lock/fee_model, renders typed param inputs from each component's `PARAM_SCHEMA`, supports per-field sweep toggles, previews and saves to `backtest/scenarios/<slug>.json`
 - `pages/scenario_runner_page.py` -- `/scenario-runner`; pick a scenario JSON, set date range, kick off a run
 - `pages/scenario_results_page.py` -- `/scenario-results`; browse aggregated results and per-position records produced by the runner
+- `pages/nba_band_drop_recovery_page.py` -- `/nba-band-drop-recovery`; owns its own engine invocation against the `band_drop_recovery_sweep` scenario and renders a 2D grid (rows = open interpretable bands, columns = drop-pct buckets) of conditional recovery base rates with Wilson 95% CIs. Aggregation logic lives in `band_drop_recovery.py`, which joins the runner's per-position DataFrame against the cached base-records frame.
 
 Each registered component module declares a `PARAM_SCHEMA = [...]` constant (typed entries: `int | float | bool | enum | int_pair | nullable_int`; sweepable fields opt in via `"sweepable": True`). The subpackage `__init__.py` registers the schema in `UNIVERSE_FILTER_SCHEMAS` / `TRIGGER_SCHEMAS` / `EXIT_SCHEMAS` next to the callable so the builder UI renders inputs without duplicating schemas.
 

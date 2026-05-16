@@ -79,24 +79,44 @@ def _scenario(
 
 @pytest.fixture
 def register_components():
-    """Allows tests to register triggers/exits and clean up after."""
+    """Allows tests to register triggers/exits and clean up after.
+
+    Saves any pre-existing entry so overwriting (e.g. real ``reversion_to_open``)
+    is restored, not removed.
+    """
+    saved_triggers: dict[str, Any] = {}
+    saved_exits: dict[str, Any] = {}
     added_triggers: list[str] = []
     added_exits: list[str] = []
 
+    _MISSING = object()
+
     def _add_trigger(name, fn):
+        if name not in saved_triggers:
+            saved_triggers[name] = TRIGGERS.get(name, _MISSING)
         TRIGGERS[name] = fn
         added_triggers.append(name)
 
     def _add_exit(name, fn):
+        if name not in saved_exits:
+            saved_exits[name] = EXITS.get(name, _MISSING)
         EXITS[name] = fn
         added_exits.append(name)
 
     yield _add_trigger, _add_exit
 
     for n in added_triggers:
-        TRIGGERS.pop(n, None)
+        prev = saved_triggers.get(n, _MISSING)
+        if prev is _MISSING:
+            TRIGGERS.pop(n, None)
+        else:
+            TRIGGERS[n] = prev
     for n in added_exits:
-        EXITS.pop(n, None)
+        prev = saved_exits.get(n, _MISSING)
+        if prev is _MISSING:
+            EXITS.pop(n, None)
+        else:
+            EXITS[n] = prev
 
 
 def _every_5s_trigger(ctx: Context, after_time, params):
@@ -310,3 +330,70 @@ def test_run_scenario_returns_empty_when_no_game_end(register_components):
     )
     ctx = dataclasses.replace(_build_ctx(scen), game_end=None)
     assert run_scenario_on_game(scen, ctx) == []
+
+
+# ------------------- regression: ExitScanner __call__ + final tick -------------------
+
+
+def test_sequential_reversion_to_open_fires_before_game_end(register_components):
+    """Regression for the two engine fixes:
+
+    1. ExitScanner exposes __call__ so PositionManager (which calls
+       slot.exit_scanner(ctx, now)) works with real exit factories.
+    2. Engine runs pm.tick(ctx, game_end) before force_close_all so a
+       scanner-driven exit (here reversion_to_open) gets a chance to fire on
+       trades up to game_end and the position exits cleanly rather than
+       being force-closed.
+    """
+    import backtest.exits  # registers reversion_to_open  # noqa: F401
+    from backtest.exits.reversion_to_open import reversion_to_open
+
+    open_fav = 0.6
+    # Tape: a dip below open at +30s (entry), then prices recover above open
+    # before game_end. With sequential lock, the position must close via
+    # reversion (not forced_close).
+    rows = []
+    rows.append({"datetime": T0 + pd.Timedelta(seconds=30), "team": "AAA",
+                 "price": 0.50, "token_id": "tok-AAA"})
+    rows.append({"datetime": T0 + pd.Timedelta(seconds=120), "team": "AAA",
+                 "price": 0.55, "token_id": "tok-AAA"})
+    # Recovery trade well before game_end:
+    rows.append({"datetime": T0 + pd.Timedelta(seconds=600), "team": "AAA",
+                 "price": open_fav, "token_id": "tok-AAA"})
+    trades = pd.DataFrame(rows)
+
+    def _one_dip_trigger(ctx, after_time, params):
+        sliced = ctx.slice_after(after_time, team="AAA")
+        if sliced.empty:
+            return None
+        row = sliced.iloc[0]
+        if float(row["price"]) >= open_fav:
+            return None
+        return Trigger(
+            trigger_time=row["datetime"],
+            trigger_price=float(row["price"]),
+            team="AAA",
+            token_id="tok-AAA",
+            side="favorite",
+            anchor_price=open_fav,
+        )
+
+    add_trigger, add_exit = register_components
+    add_trigger("test_one_dip", _one_dip_trigger)
+    add_exit("reversion_to_open", reversion_to_open)
+
+    lock = LockSpec(mode="sequential", max_entries=1, cool_down_seconds=0.0)
+    scen = _scenario("rev_reg", lock, "test_one_dip", "reversion_to_open")
+    ctx = _build_ctx(scen, trades=trades)
+    positions = run_scenario_on_game(scen, ctx)
+
+    assert len(positions) == 1
+    p = positions[0]
+    # Regression assertion: scanner-driven exit fires; NOT forced_close.
+    assert p.exit.exit_kind == "reversion", (
+        f"expected reversion exit, got {p.exit.exit_kind!r} "
+        f"(likely engine final-tick or ExitScanner.__call__ regression)"
+    )
+    assert p.exit.status == "filled"
+    assert p.exit.exit_price == pytest.approx(open_fav)
+    assert p.exit.exit_time < GAME_END
