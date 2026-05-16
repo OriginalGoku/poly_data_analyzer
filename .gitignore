@@ -48,3 +48,10 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# sentrux per-machine state (rules.toml is committed; everything else is local)
+.sentrux/*
+!.sentrux/rules.toml
+
+# Claude Code per-machine runtime state
+.claude/execute-plan-state/
