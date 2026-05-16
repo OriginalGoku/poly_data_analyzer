@@ -155,6 +155,7 @@ class NBAOpenTipoffAnalysisPage:
                         dcc.Loading(dcc.Graph(id="nba-analysis-volatility", style={"height": "420px"})),
                     ],
                 ),
+                dcc.Store(id="nba-analysis-init", data=0),
                 html.Div(style={"marginTop": "20px"}, children=[dcc.Loading(dcc.Graph(id="nba-analysis-open-vs-tipoff", style={"height": "520px"}))]),
                 html.Div(
                     style={"marginTop": "20px"},
@@ -190,9 +191,9 @@ class NBAOpenTipoffAnalysisPage:
             Output("nba-analysis-start-date", "value"),
             Output("nba-analysis-end-date", "options"),
             Output("nba-analysis-end-date", "value"),
-            Input("nba-analysis-price-quality", "value"),
+            Input("nba-analysis-init", "data"),
         )
-        def populate_dates(price_quality):
+        def populate_dates(_init):
             dates = get_dates_for_sport(self.analysis_service.data_dir, "nba")
             options = [{"label": date, "value": date} for date in dates]
             start, end = _default_date_window(dates)
@@ -265,6 +266,19 @@ class NBAOpenTipoffAnalysisPage:
                     else int(band_counts.get(label, 0))
                 )
                 band_children.append(info_row(f"{label} ({band_range})", f"{count:,}"))
+            band_children.append(
+                dcc.Link(
+                    "View Drop-Recovery Grid →",
+                    href="/nba-band-drop-recovery",
+                    style={
+                        "display": "inline-block",
+                        "marginTop": "10px",
+                        "color": "#9ad1ff",
+                        "fontWeight": "bold",
+                        "textDecoration": "none",
+                    },
+                )
+            )
 
             columns = _build_table_columns(table)
             return (

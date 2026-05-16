@@ -11,14 +11,17 @@ python app.py                     # run Dash app on localhost:8050
 
 ### Dashboard & Analytics
 - `app.py` -- Dash app entry point (layout + callbacks + whale card builder)
-- `analytics.py` -- Cached game-level checkpoint analytics, sport-specific quantile bands, and per-game regime summaries
+- `analytics.py` -- Cached game-level checkpoint analytics, sport-specific quantile bands, and per-game regime summaries. Exposes `stream_game_analytics(...)` yielding `(base_record, get_game)` so per-game callers (e.g. NBA tipoff) read each `trades.json.gz` exactly once. Base-records frame persists cross-restart at `cache/_base_records/<settings_hash>.pkl` + `.manifest.json` (per-game `input_fingerprint`). `get_analytics_view` cache key no longer depends on `start_date`/`end_date`; the date filter is applied between sport filter and quantile_source so window-local bands are preserved.
 - `charts.py` -- Plotly figure builders (pregame 3-row figure; in-game 4-row figure with whale markers and aggressor cumulative flow; sensitivity, discrepancy, regime transition, and dip recovery charts)
 - `discrepancy.py` -- Cached market-score discrepancy intervals plus forward-return metrics
 - `regime_transitions.py` -- Cached favorite-side band transition detection for the single-game dashboard
 - `dip_recovery.py` -- Cached absolute dip interval detection and recovery summaries
 - `sensitivity.py` -- Per-event scoring sensitivity computation and cache loader
-- `loaders.py` -- Data loading and parsing
+- `loaders.py` -- Data loading and parsing. `load_game` delegates to `build_loaded_game(data_dir, date, manifest, trades_data, outlier_settings)` so streaming callers can hand in already-decompressed trades data without a second disk read.
+- `nba_tipoff_cache.py` -- Persistent per-game disk cache for tipoff detail rows. Path: `cache/<date>/<match_id>_nba_tipoff.json`. Payload guarded by `schema_version` + `settings_hash` (over `pregame_min_cum_vol`, `vol_spike_std`, `vol_spike_lookback`, `post_game_buffer_min`, open-favorite team/price) + `input_fingerprint` (mtime+size of trades/manifest/events). Supports lazy `game_provider` so cache hits skip game I/O entirely.
 - `whales.py` -- Whale wallet identification, classification, filtering, and maker/taker trade-size stats
+- `band_drop_recovery.py` -- Per-band drop-recovery aggregator. Joins engine sweep output to base-records frame, computes recovery rate + Wilson 95% CI + median TTR + median further drawdown by `(band, drop_pct)`. Sibling to `dip_recovery.py`; no shared cache files.
+- `pages/nba_band_drop_recovery_page.py` -- Band × drop-pct recovery grid (route `/nba-band-drop-recovery`). Page owns engine invocation against `band_drop_recovery_sweep` scenario; filters mirror tipoff page.
 
 ### Backtest Framework (legacy; slated for removal in Step 19)
 - `backtest/backtest_cli.py` -- legacy CLI; parses date range, dip thresholds, exit types, fee models, sport filters
@@ -38,7 +41,7 @@ Generic JSON-scenario-driven engine. Components are pluggable and decorator-regi
 - `backtest/contracts.py` -- frozen dataclass contracts: `Context`, `Trigger`, `Exit`, `Position`, `Scenario`, `LockSpec`, `ComponentSpec`, `GameMeta`
 - `backtest/registry.py` -- three component registries (`UNIVERSE_FILTERS`, `TRIGGERS`, `EXITS`) plus parallel `*_SCHEMAS` dicts that expose each component's `PARAM_SCHEMA` for the builder UI
 - `backtest/scenarios.py` -- scenario JSON loader with sweep expansion (parameter grids fan out into multiple scenarios)
-- `backtest/scenarios/*.json` -- scenario definitions (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`, `favorite_drop_50pct_unbounded_tp_sl.json`)
+- `backtest/scenarios/*.json` -- scenario definitions (e.g., `dip_buy_favorite.json`, `favorite_drop_50pct_60min_tp_sl.json`, `favorite_drop_50pct_unbounded_tp_sl.json`, `band_drop_recovery_sweep.json`)
 - `backtest/filters/` -- universe filters (`upper_strong.py`, `first_k_above.py`)
 - `backtest/triggers/` -- entry triggers (`dip_below_anchor.py`, `pct_drop_window.py`)
 - `backtest/exits/` -- exits (`settlement.py`, `reversion_to_open.py`, `reversion_to_partial.py`, `fixed_profit.py`, `tp_sl.py`)
@@ -54,7 +57,7 @@ Generic JSON-scenario-driven engine. Components are pluggable and decorator-regi
 - `chart_settings.json` -- Configurable thresholds (volume spikes, whale detection, whale marker minimum size, sensitivity windows/bins)
 
 ### Data & Docs
-- `cache/` -- Local computed artifacts such as per-game sensitivity, discrepancy, regime transition, and dip recovery JSON caches
+- `cache/` -- Local computed artifacts: per-game sensitivity, discrepancy, regime transition, dip recovery, and NBA tipoff detail JSON caches (`cache/<date>/<match_id>_<kind>.json`), plus the cross-restart base-records frame at `cache/_base_records/<settings_hash>.pkl` with a `.manifest.json` sidecar.
 - `DATA_SPEC.md` -- Upstream data format reference (from poly-data-downloader)
 - `data/` -- Trade data directories (YYYY-MM-DD format, not checked in)
 
@@ -74,3 +77,6 @@ Generic JSON-scenario-driven engine. Components are pluggable and decorator-regi
 - Regime analytics should be built from favorite-side probabilities, not both token prices independently.
 - Quantile bands are computed separately by sport and by active `price_quality` slice.
 - The analytics `open` anchor is a "meaningful open": first pregame trade prices after cumulative pregame volume reaches `pregame_min_cum_vol`, not raw `selected_early_price`.
+- Per-game on-disk cache convention: `cache/<date>/<match_id>_<kind>.json` with payload `{schema_version, settings_hash, input_fingerprint?, row|rows}`. Used by `sensitivity`, `dip_recovery`, `regime_transitions`, `discrepancy`, and `nba_tipoff_cache`. Only `nba_tipoff_cache` includes `input_fingerprint` (raw-data mtime+size) because the tipoff page is the user-visible perf cache; the others rely on the implicit "raw data immutable once collected" contract.
+- Bulk per-game pipelines (NBA tipoff) should consume `analytics.stream_game_analytics(...)` to read each `trades.json.gz` once; pair with a lazy `game_provider` callback so disk-cache hits avoid the load entirely. RAM stays at one game at a time.
+- `_build_nba_analysis_dataset` emits stdout phase timers (`[nba_tipoff] base_records=… elapsed=…s`, `detail_loop`, `post_process`) visible in the Dash terminal; preserve them when refactoring.
