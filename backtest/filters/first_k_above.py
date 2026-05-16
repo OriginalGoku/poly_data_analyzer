@@ -22,13 +22,25 @@ PARAM_SCHEMA = [
 ]
 
 
+_SCORE_EVENT_TYPES = {"2pt", "3pt", "freethrow"}
+
+
 def _tipoff_time(events: list[dict] | None) -> Optional[pd.Timestamp]:
+    """Tipoff = earliest scoring event with a wall-clock timestamp.
+
+    NBA events expose `event_type` (snake_case) with values like "2pt", "3pt",
+    "freethrow"; the first such event marks game start.
+    """
     if not events:
         return None
     score_events = [
         ev
         for ev in events
-        if ev.get("eventType") == "score" and ev.get("time_actual_dt") is not None
+        if (
+            ev.get("event_type") in _SCORE_EVENT_TYPES
+            or ev.get("eventType") == "score"
+        )
+        and ev.get("time_actual_dt") is not None
     ]
     if not score_events:
         return None
@@ -77,7 +89,7 @@ def first_k_above(
         price_quality = row.get("price_quality", "unknown")
         if exclude_inferred and price_quality == "inferred":
             continue
-        if not row.get("has_events", False):
+        if not (row.get("tipoff_available", False) or row.get("has_events", False)):
             continue
 
         try:
@@ -107,8 +119,9 @@ def first_k_above(
         if not (first_k["price"] >= min_price).all():
             continue
 
-        can_settle = bool(row.get("has_events", False)) and bool(
-            row.get("has_final_score", False)
+        can_settle = bool(
+            row.get("tipoff_available", False)
+            or (row.get("has_events", False) and row.get("has_final_score", False))
         )
 
         qualified.append(

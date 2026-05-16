@@ -25,6 +25,7 @@ from analytics import ACTIVE_INTERPRETABLE_BAND_LABELS, load_game_analytics
 from backtest.runner import run as run_scenarios
 from backtest.scenarios import load_scenarios
 from band_drop_recovery import compute_recovery_grid, partition_games
+from loaders import get_dates_for_sport
 from view_helpers import CARD_STYLE, info_row
 
 
@@ -44,6 +45,7 @@ class NBABandDropRecoveryPage:
 
     def layout(self):
         settings_dict = self.settings.to_dict()
+        default_start, default_end = _default_date_window(DATA_DIR)
         return html.Div(
             children=[
                 html.H2("NBA Band Drop Recovery", style={"marginBottom": "10px"}),
@@ -99,6 +101,7 @@ class NBABandDropRecoveryPage:
                                 dcc.Input(
                                     id="bdr-start-date",
                                     type="text",
+                                    value=default_start or "",
                                     placeholder="2024-10-01",
                                     style={"width": "180px"},
                                 ),
@@ -110,6 +113,7 @@ class NBABandDropRecoveryPage:
                                 dcc.Input(
                                     id="bdr-end-date",
                                     type="text",
+                                    value=default_end or "",
                                     placeholder="2026-05-16",
                                     style={"width": "180px"},
                                 ),
@@ -180,12 +184,24 @@ class NBABandDropRecoveryPage:
                     ],
                 ),
                 html.H3("Recovery Rate Grid", style={"marginBottom": "10px"}),
-                html.Div(id="bdr-grid-container"),
+                html.P(
+                    "Click Run to compute. With no date filter, the engine sweeps every collected NBA game × 10 buckets — narrow the date range first.",
+                    style={"color": "#8fb8e8", "fontSize": "12px", "marginTop": 0},
+                ),
+                dcc.Loading(
+                    id="bdr-grid-loading",
+                    type="circle",
+                    children=html.Div(id="bdr-grid-container"),
+                ),
                 html.Details(
                     style={"marginTop": "20px"},
                     children=[
                         html.Summary("Per-bucket detail", style={"cursor": "pointer", "color": "#9ad1ff"}),
-                        html.Div(id="bdr-detail-container", style={"marginTop": "10px"}),
+                        dcc.Loading(
+                            id="bdr-detail-loading",
+                            type="circle",
+                            children=html.Div(id="bdr-detail-container", style={"marginTop": "10px"}),
+                        ),
                     ],
                 ),
                 dcc.Store(id="bdr-error"),
@@ -203,6 +219,7 @@ class NBABandDropRecoveryPage:
             State("bdr-end-date", "value"),
             State("bdr-min-open-fav", "value"),
             State("bdr-min-n", "value"),
+            prevent_initial_call=True,
         )
         def run_callback(n_clicks, price_quality, start_date, end_date, min_open_fav, min_n_display):
             try:
@@ -290,6 +307,38 @@ def _parse_date(s: str | None) -> datetime | None:
     if not s:
         return None
     return datetime.strptime(s, "%Y-%m-%d")
+
+
+def _default_date_window(data_dir: str, days: int = 14) -> tuple[str | None, str | None]:
+    """Pick a window ending at the most recent NBA date that has usable analytics
+    (tipoff detected + favorite team identified). Falls back to raw date dropdown
+    if base-records analytics is unavailable.
+    """
+    try:
+        analytics = load_game_analytics(data_dir)
+        nba = analytics[analytics["sport"] == "nba"] if not analytics.empty else analytics
+        usable = nba[
+            (nba.get("tipoff_available") == True)  # noqa: E712
+            & (nba["open_favorite_team"].notna())
+            & (nba["open_favorite_team"] != "Tie")
+        ]
+        if not usable.empty:
+            end = pd.to_datetime(usable["date"]).max()
+            start = end - pd.Timedelta(days=days)
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    try:
+        dates = get_dates_for_sport(data_dir, "nba")
+    except Exception:
+        return None, None
+    if not dates:
+        return None, None
+    end = pd.to_datetime(dates).max()
+    parsed = pd.to_datetime(dates)
+    eligible = parsed[parsed >= end - pd.Timedelta(days=days)]
+    start = eligible.min() if len(eligible) else parsed.min()
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
 def _load_band_drop_recovery_scenarios():

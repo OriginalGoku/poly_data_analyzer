@@ -64,8 +64,9 @@ def upper_strong(
         if exclude_inferred and price_quality == "inferred":
             continue
 
-        can_settle = bool(row.get("has_events", False)) and bool(
-            row.get("has_final_score", False)
+        can_settle = bool(
+            row.get("tipoff_available", False)
+            or (row.get("has_events", False) and row.get("has_final_score", False))
         )
 
         qualified.append(
