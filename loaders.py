@@ -65,21 +65,34 @@ def load_game(
     """
     base = Path(data_dir) / date
 
-    # Find manifest entry
     with open(base / "manifest.json") as f:
         entries = json.load(f)
     manifest = next((g for g in entries if g["match_id"] == match_id), None)
     if manifest is None:
         raise ValueError(f"Game {match_id} not found in {date} manifest")
 
-    # Build token_id -> team name mapping
-    token_to_team = {}
-    for i, token_id in enumerate(manifest["token_ids"]):
-        token_to_team[token_id] = manifest["outcomes"][i]
-
-    # Load trades
     trades_path = base / f"{match_id}_trades.json.gz"
     trades_data = _read_json(trades_path)
+    return build_loaded_game(data_dir, date, manifest, trades_data, outlier_settings)
+
+
+def build_loaded_game(
+    data_dir: str,
+    date: str,
+    manifest: dict,
+    trades_data: dict,
+    outlier_settings: dict | None = None,
+) -> dict:
+    """Build a load_game-shaped dict from already-read trades_data.
+
+    Used by streaming pipelines that read each trades.json.gz exactly once.
+    """
+    base = Path(data_dir) / date
+
+    token_to_team = {
+        token_id: manifest["outcomes"][i]
+        for i, token_id in enumerate(manifest["token_ids"])
+    }
 
     trades_list = trades_data["trades"]
     trades_meta = {k: v for k, v in trades_data.items() if k != "trades"}
@@ -87,27 +100,19 @@ def load_game(
     trades_df = pd.DataFrame(trades_list)
     trades_df["datetime"] = pd.to_datetime(trades_df["timestamp"], unit="s", utc=True)
     trades_df["team"] = trades_df["asset"].map(token_to_team)
-
-    # Apply flash-crash outlier filter
     trades_df = _filter_flash_crashes(trades_df, outlier_settings)
 
-    # Parse gamma timestamps
     gamma_start = _parse_iso(manifest.get("gamma_start_time"))
     gamma_closed = _parse_iso(manifest.get("gamma_closed_time"))
 
-    # Load events if file exists
-    events_path = base / f"{match_id}_events.json.gz"
+    events_path = base / f"{manifest['match_id']}_events.json.gz"
     events = None
     tricode_map = {}
     if events_path.exists():
         events_data = _read_json(events_path)
         events = events_data.get("events", [])
-
-        # Parse time_actual on each event
         for ev in events:
             ev["time_actual_dt"] = _parse_iso(ev.get("time_actual"))
-
-        # Build tricode -> team mapping by tracking score changes
         tricode_map = _build_tricode_map(events, manifest)
 
     return {

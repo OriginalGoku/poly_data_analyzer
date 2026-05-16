@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from math import sqrt
@@ -18,6 +19,7 @@ from analytics import (
     TIE_TOLERANCE,
     build_game_analytics_dataset,
     get_analytics_view,
+    stream_game_analytics,
 )
 from loaders import _derive_nba_final_winner, load_game
 from settings import ChartSettings
@@ -264,10 +266,16 @@ class PregameFavoritePathAnalyzer:
 class NBAOpenTipoffAnalysisService:
     """Reusable service used by the Dash page and export script."""
 
-    def __init__(self, data_dir: str = "data", settings: ChartSettings | None = None):
+    def __init__(
+        self,
+        data_dir: str = "data",
+        settings: ChartSettings | None = None,
+        cache_dir: str | None = "cache",
+    ):
         self.data_dir = str(Path(data_dir))
         self.settings = settings or ChartSettings()
         self.path_analyzer = PregameFavoritePathAnalyzer(self.settings)
+        self.cache_dir = cache_dir
 
     def load_dataset(self, filters: AnalysisFilters, progress_observer=None) -> pd.DataFrame:
         return self.prepare_dataset(filters, progress_observer=progress_observer).dataset
@@ -283,6 +291,7 @@ class NBAOpenTipoffAnalysisService:
                 self.settings.vol_spike_lookback,
                 filters.start_date,
                 filters.end_date,
+                self.cache_dir,
             ).copy()
         else:
             dataset = _build_nba_analysis_dataset(
@@ -295,6 +304,7 @@ class NBAOpenTipoffAnalysisService:
                 filters.start_date,
                 filters.end_date,
                 progress_observer=progress_observer,
+                cache_dir=self.cache_dir,
             )
 
         if dataset.empty:
@@ -648,6 +658,7 @@ def _load_nba_analysis_dataset(
     vol_spike_lookback: int,
     start_date: str | None,
     end_date: str | None,
+    cache_dir: str | None = None,
 ) -> pd.DataFrame:
     return _build_nba_analysis_dataset(
         data_dir,
@@ -659,6 +670,7 @@ def _load_nba_analysis_dataset(
         start_date,
         end_date,
         progress_observer=None,
+        cache_dir=cache_dir,
     )
 
 
@@ -672,6 +684,7 @@ def _build_nba_analysis_dataset(
     start_date: str | None,
     end_date: str | None,
     progress_observer=None,
+    cache_dir: str | None = None,
 ) -> pd.DataFrame:
     settings = ChartSettings(
         open_anchor_stat=open_anchor_stat,
@@ -685,61 +698,63 @@ def _build_nba_analysis_dataset(
     service.settings = settings
     service.path_analyzer = PregameFavoritePathAnalyzer(settings)
 
-    if progress_observer is None:
-        base = get_analytics_view(
-            data_dir=data_dir,
-            sport="nba",
-            price_quality_filter="all",
-            pregame_min_cum_vol=pregame_min_cum_vol,
-            open_anchor_stat=open_anchor_stat,
-            open_anchor_window_min=open_anchor_window_min,
-            start_date=start_date,
-            end_date=end_date,
-        )
-    else:
-        base_records = build_game_analytics_dataset(
-            data_dir=data_dir,
-            pregame_min_cum_vol=pregame_min_cum_vol,
-            open_anchor_stat=open_anchor_stat,
-            open_anchor_window_min=open_anchor_window_min,
-            start_date=start_date,
-            end_date=end_date,
-            progress_observer=progress_observer.child("base"),
-        )
-        if base_records.empty:
-            return base_records
-        base = base_records[base_records["sport"] == "nba"].copy()
-        quantiles = _compute_quantiles_for_progress_build(base)
-        for anchor in ("open", "tipoff"):
-            price_col = f"{anchor}_favorite_price"
-            band_col = f"{anchor}_quantile_band"
-            base[band_col] = base.apply(
-                lambda row: _assign_quantile_band_for_progress_build(
-                    row.get(price_col),
-                    quantiles.get(anchor),
-                ),
-                axis=1,
-            )
-    if base.empty:
-        return base
-
+    _t0 = time.perf_counter()
+    _t1 = time.perf_counter()
     rows: list[dict[str, Any]] = []
-    records = base.to_dict("records")
-    if progress_observer is not None:
-        progress_observer.start(total=len(records), description="Processing NBA detailed metrics")
+    base_records_list: list[dict[str, Any]] = []
+    stream_observer = progress_observer.child("base") if progress_observer is not None else None
 
-    for index, row in enumerate(records, start=1):
-        details = _load_nba_detail_row(
-            data_dir,
-            row["date"],
-            row["match_id"],
-            pregame_min_cum_vol,
-            vol_spike_std,
-            vol_spike_lookback,
-            row.get("open_favorite_team"),
-            row.get("open_favorite_price"),
-        )
-        merged = {**row, **details}
+    base_records_cache_dir = (
+        str(Path(cache_dir) / "_base_records") if cache_dir is not None else None
+    )
+
+    detail_started = False
+    for index, (base_record, get_game) in enumerate(
+        stream_game_analytics(
+            data_dir=data_dir,
+            pregame_min_cum_vol=pregame_min_cum_vol,
+            open_anchor_stat=open_anchor_stat,
+            open_anchor_window_min=open_anchor_window_min,
+            start_date=start_date,
+            end_date=end_date,
+            progress_observer=stream_observer,
+            base_records_cache_dir=base_records_cache_dir,
+        ),
+        start=1,
+    ):
+        if base_record.get("sport") != "nba":
+            continue
+        base_records_list.append(base_record)
+        if not detail_started:
+            print(
+                f"[nba_tipoff] base_records (streaming) elapsed_so_far={time.perf_counter() - _t0:.1f}s",
+                flush=True,
+            )
+            _t1 = time.perf_counter()
+            if progress_observer is not None:
+                progress_observer.start(total=0, description="Processing NBA detailed metrics")
+            detail_started = True
+        if cache_dir is not None:
+            from nba_tipoff_cache import load_or_compute_nba_tipoff_detail
+            details = load_or_compute_nba_tipoff_detail(
+                cache_dir=cache_dir,
+                data_dir=data_dir,
+                date=base_record["date"],
+                match_id=base_record["match_id"],
+                game_provider=get_game,
+                settings=settings,
+                open_favorite_team=base_record.get("open_favorite_team"),
+                open_favorite_price=base_record.get("open_favorite_price"),
+                compute_fn=_compute_nba_detail_row_from_game,
+            )
+        else:
+            details = _compute_nba_detail_row_from_game(
+                get_game(),
+                settings,
+                base_record.get("open_favorite_team"),
+                base_record.get("open_favorite_price"),
+            )
+        merged = {**base_record, **details}
         merged["favorite_move_signed"] = _compute_signed_move(
             merged.get("open_favorite_price"),
             merged.get("tipoff_favorite_price"),
@@ -771,22 +786,48 @@ def _build_nba_analysis_dataset(
             merged.get("open_interpretable_band"),
             merged.get("tipoff_interpretable_band"),
         )
-        merged["quantile_transition"] = _build_transition_label(
-            merged.get("open_quantile_band"),
-            merged.get("tipoff_quantile_band"),
-        )
         merged["favorite_outcome_group"] = _favorite_outcome_group(
             merged["favorite_changed_open_to_tipoff"],
             merged.get("any_favorite_switch_pregame"),
         )
         rows.append(merged)
         if progress_observer is not None:
-            progress_observer.advance(index=index, match_id=row["match_id"], date=row["date"])
+            progress_observer.advance(
+                index=index, match_id=base_record["match_id"], date=base_record["date"]
+            )
 
+    if not rows:
+        print(f"[nba_tipoff] base_records=0 elapsed={time.perf_counter() - _t0:.1f}s", flush=True)
+        return pd.DataFrame()
+
+    print(
+        f"[nba_tipoff] detail_loop games={len(rows)} elapsed={time.perf_counter() - _t1:.1f}s",
+        flush=True,
+    )
+    _t2 = time.perf_counter()
     dataset = pd.DataFrame(rows)
     dataset["date"] = pd.to_datetime(dataset["date"]).dt.strftime("%Y-%m-%d")
+
+    quantiles = _compute_quantiles_for_progress_build(dataset)
+    for anchor in ("open", "tipoff"):
+        price_col = f"{anchor}_favorite_price"
+        band_col = f"{anchor}_quantile_band"
+        dataset[band_col] = dataset[price_col].apply(
+            lambda p, _q=quantiles.get(anchor): _assign_quantile_band_for_progress_build(p, _q)
+        )
+    dataset["quantile_transition"] = dataset.apply(
+        lambda r: _build_transition_label(
+            r.get("open_quantile_band"), r.get("tipoff_quantile_band")
+        ),
+        axis=1,
+    )
+
     if progress_observer is not None:
-        progress_observer.finish(total=len(records))
+        progress_observer.finish(total=len(rows))
+    print(
+        f"[nba_tipoff] post_process rows={len(dataset)} elapsed={time.perf_counter() - _t2:.1f}s",
+        flush=True,
+    )
     return dataset
 
 
@@ -811,24 +852,18 @@ def _assign_quantile_band_for_progress_build(price: float | None, thresholds: tu
     return "Q3"
 
 
-@lru_cache(maxsize=256)
-def _load_nba_detail_row(
-    data_dir: str,
-    date: str,
-    match_id: str,
-    pregame_min_cum_vol: float,
-    vol_spike_std: float,
-    vol_spike_lookback: int,
+def _compute_nba_detail_row_from_game(
+    game: dict,
+    settings: ChartSettings,
     open_favorite_team: str | None,
     open_favorite_price: float | None,
 ) -> dict[str, Any]:
-    settings = ChartSettings(
-        pregame_min_cum_vol=pregame_min_cum_vol,
-        vol_spike_std=vol_spike_std,
-        vol_spike_lookback=vol_spike_lookback,
-    )
+    """Compute per-game detail metrics from an already-loaded game dict.
+
+    Streaming entry point: avoids the second trades.json.gz read that the
+    cached `_load_nba_detail_row` wrapper performs via `load_game`.
+    """
     path_analyzer = PregameFavoritePathAnalyzer(settings)
-    game = load_game(data_dir, date, match_id)
     details = path_analyzer.compute_metrics(game["trades_df"], game["events"])
     final_winner = _derive_nba_final_winner(game["manifest"], game["events"])
     details.update(
@@ -848,6 +883,28 @@ def _load_nba_detail_row(
         }
     )
     return details
+
+
+@lru_cache(maxsize=256)
+def _load_nba_detail_row(
+    data_dir: str,
+    date: str,
+    match_id: str,
+    pregame_min_cum_vol: float,
+    vol_spike_std: float,
+    vol_spike_lookback: int,
+    open_favorite_team: str | None,
+    open_favorite_price: float | None,
+) -> dict[str, Any]:
+    settings = ChartSettings(
+        pregame_min_cum_vol=pregame_min_cum_vol,
+        vol_spike_std=vol_spike_std,
+        vol_spike_lookback=vol_spike_lookback,
+    )
+    game = load_game(data_dir, date, match_id)
+    return _compute_nba_detail_row_from_game(
+        game, settings, open_favorite_team, open_favorite_price
+    )
 
 
 def _favorite_changed(open_team: str | None, tipoff_team: str | None) -> bool:
