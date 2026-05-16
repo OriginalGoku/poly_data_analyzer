@@ -114,3 +114,12 @@ Distance from Main Sequence: 0.35
 **Intentional tradeoffs:** Accepted one additional complex function for the band-drop-recovery wiring; quality score net-improved (6369 -> 6364, lower is better).
 
 ---
+
+## [plan_file: Pregame_Volume_Filter_Plan/technical-plan.md] Executed 2026-05-16
+**Mode:** sequential | **Result:** All 5 steps completed
+**PRs:** N/A (sequential mode)
+**Salience:** NORMAL
+**Modules:** analytics.py, pages/scenario_runner_page.py, nba_analysis.py, loaders.py, backtest/runner.py, tests/
+**Notable:** `pregame_min_cum_vol` is now dual-comparator — interpreted as share count for the open-anchor and as USDC notional for the game-picker gate. Trade-count badge threshold is hardcoded at 50 (per plan Risk Flag). Implementation diverged from plan suggestion: single `get_analytics_view` call with `min_pregame_notional=0` plus in-callback filtering, instead of two separate calls (plan listed this as an acceptable alternative; avoids a second cache pass). Tests 289 -> 297 (8 new, 0 regressions). Architecture gate not run for this plan (explicitly opted out).
+
+---

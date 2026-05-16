@@ -46,6 +46,11 @@ class TestAnalytics:
                 "home_team": "B",
                 "outcomes": ["A", "B"],
                 "token_ids": ["t1", "t2"],
+                "volume_stats": {
+                    "pre_game_notional_usdc": 12345.67,
+                    "trade_count": 42,
+                    "in_game_notional_usdc": 1000.0,
+                },
             },
             {
                 "match_id": "nhl-c-d-2026-04-10",
@@ -117,6 +122,11 @@ class TestAnalytics:
         assert nba["tipoff_favorite_price"] == 0.65
         assert nba["open_interpretable_band"] == "Lower Moderate"
         assert nba["tipoff_interpretable_band"] == "Upper Moderate"
+        assert nba["pre_game_notional_usdc"] == 12345.67
+        assert nba["trade_count"] == 42
+        nhl = df[df["match_id"] == "nhl-c-d-2026-04-10"].iloc[0]
+        assert pd.isna(nhl["pre_game_notional_usdc"])
+        assert pd.isna(nhl["trade_count"])
 
     def test_get_analytics_view_applies_quality_filter_and_quantile_bands(self, tmp_path):
         date_dir = tmp_path / "2026-04-10"
@@ -433,3 +443,193 @@ class TestAnalytics:
         assert row["open_favorite_team"] == "Home"
         assert row["open_favorite_price"] == pytest.approx((0.56 * 1000 + 0.58 * 2000) / 3000)
         assert row["open_price_source"] == "post_min_cum_vol_vwap_5m"
+
+    def test_quantile_bands_use_window_local_population(self, tmp_path):
+        """Quantile bands must reflect the date-window population, not the full history.
+
+        Regression test for Step 4: the date filter in get_analytics_view must run
+        before quantile_source assignment.
+        """
+        for date_name, prices in [
+            ("2026-04-01", [(0.60, "low-1"), (0.60, "low-2")]),
+            ("2026-04-10", [(0.90, "hi-1"), (0.90, "hi-2")]),
+        ]:
+            date_dir = tmp_path / date_name
+            entries = []
+            for price, match_id in prices:
+                entries.append(
+                    {
+                        "match_id": match_id,
+                        "sport": "nba",
+                        "status": "collected",
+                        "away_team": "A",
+                        "home_team": "B",
+                        "outcomes": ["A", "B"],
+                        "token_ids": [f"{match_id}-a", f"{match_id}-b"],
+                    }
+                )
+                _write_trade_file(
+                    date_dir / f"{match_id}_trades.json.gz",
+                    {
+                        "match_id": match_id,
+                        "sport": "nba",
+                        "price_checkpoints_meta": {"price_quality": "exact"},
+                        "price_checkpoints": {
+                            f"{match_id}-a": {
+                                "selected_early_price": 1 - price,
+                                "selected_early_price_source": "clob_open",
+                                "last_pregame_trade_price": 1 - price,
+                            },
+                            f"{match_id}-b": {
+                                "selected_early_price": price,
+                                "selected_early_price_source": "clob_open",
+                                "last_pregame_trade_price": price,
+                            },
+                        },
+                        "trades": [
+                            {"timestamp": 1, "asset": f"{match_id}-a", "price": 1 - price, "size": 3000},
+                            {"timestamp": 2, "asset": f"{match_id}-b", "price": price, "size": 3000},
+                        ],
+                    },
+                )
+            _write_manifest(date_dir / "manifest.json", entries)
+
+        # Window: 2026-04-01 only. All games in the window are price 0.60.
+        # If date filter is applied AFTER quantile_source, bands span the global 0.60..0.90 range
+        # and our two window games would land in Q1. With correct ordering, all bands are equal
+        # (degenerate population) and at minimum every band label is from the window's prices.
+        window_view = get_analytics_view(
+            str(tmp_path),
+            sport="nba",
+            price_quality_filter="all",
+            pregame_min_cum_vol=5000,
+            start_date="2026-04-01",
+            end_date="2026-04-01",
+        )
+        assert len(window_view) == 2
+        # All window prices identical => all rows share the same quantile band.
+        assert window_view["open_quantile_band"].nunique() == 1
+
+    def test_get_analytics_view_min_pregame_notional_gate(self, tmp_path):
+        date_dir = tmp_path / "2026-04-10"
+        entries = []
+        for match_id, pre_vol in [("nba-thin", 100), ("nba-mid", 5_000), ("nba-fat", 50_000)]:
+            entries.append(
+                {
+                    "match_id": match_id,
+                    "sport": "nba",
+                    "status": "collected",
+                    "away_team": "A",
+                    "home_team": "B",
+                    "outcomes": ["A", "B"],
+                    "token_ids": [f"{match_id}-a", f"{match_id}-b"],
+                    "volume_stats": {"pre_game_notional_usdc": pre_vol, "trade_count": 10},
+                }
+            )
+            _write_trade_file(
+                date_dir / f"{match_id}_trades.json.gz",
+                {
+                    "match_id": match_id,
+                    "sport": "nba",
+                    "price_checkpoints_meta": {"price_quality": "exact"},
+                    "price_checkpoints": {
+                        f"{match_id}-a": {
+                            "selected_early_price": 0.4,
+                            "selected_early_price_source": "clob_open",
+                            "last_pregame_trade_price": 0.4,
+                        },
+                        f"{match_id}-b": {
+                            "selected_early_price": 0.6,
+                            "selected_early_price_source": "clob_open",
+                            "last_pregame_trade_price": 0.6,
+                        },
+                    },
+                    "trades": [
+                        {"timestamp": 1, "asset": f"{match_id}-a", "price": 0.4, "size": 3000},
+                        {"timestamp": 2, "asset": f"{match_id}-b", "price": 0.6, "size": 3000},
+                    ],
+                },
+            )
+        _write_manifest(date_dir / "manifest.json", entries)
+
+        view_all = get_analytics_view(
+            str(tmp_path),
+            sport="nba",
+            price_quality_filter="all",
+            pregame_min_cum_vol=0,
+            min_pregame_notional=0,
+        )
+        assert len(view_all) == 3
+
+        view_gated = get_analytics_view(
+            str(tmp_path),
+            sport="nba",
+            price_quality_filter="all",
+            pregame_min_cum_vol=0,
+            min_pregame_notional=5000,
+        )
+        assert set(view_gated["match_id"]) == {"nba-mid", "nba-fat"}
+
+    def test_get_analytics_view_combines_sport_and_date_filters(self, tmp_path):
+        """sport filter + start_date/end_date applied together must intersect."""
+        layout = [
+            ("2026-04-01", "nba-old", "nba", 0.60),
+            ("2026-04-01", "mlb-old", "mlb", 0.55),
+            ("2026-04-10", "nba-new", "nba", 0.75),
+            ("2026-04-10", "mlb-new", "mlb", 0.70),
+            ("2026-04-20", "nba-future", "nba", 0.85),
+        ]
+        by_date: dict[str, list[dict]] = {}
+        for date_name, match_id, sport, price in layout:
+            by_date.setdefault(date_name, []).append(
+                {
+                    "match_id": match_id,
+                    "sport": sport,
+                    "status": "collected",
+                    "away_team": "A",
+                    "home_team": "B",
+                    "outcomes": ["A", "B"],
+                    "token_ids": [f"{match_id}-a", f"{match_id}-b"],
+                }
+            )
+            _write_trade_file(
+                tmp_path / date_name / f"{match_id}_trades.json.gz",
+                {
+                    "match_id": match_id,
+                    "sport": sport,
+                    "price_checkpoints_meta": {"price_quality": "exact"},
+                    "price_checkpoints": {
+                        f"{match_id}-a": {
+                            "selected_early_price": 1 - price,
+                            "selected_early_price_source": "clob_open",
+                            "last_pregame_trade_price": 1 - price,
+                        },
+                        f"{match_id}-b": {
+                            "selected_early_price": price,
+                            "selected_early_price_source": "clob_open",
+                            "last_pregame_trade_price": price,
+                        },
+                    },
+                    "trades": [
+                        {"timestamp": 1, "asset": f"{match_id}-a", "price": 1 - price, "size": 3000},
+                        {"timestamp": 2, "asset": f"{match_id}-b", "price": price, "size": 3000},
+                    ],
+                },
+            )
+        for date_name, entries in by_date.items():
+            _write_manifest(tmp_path / date_name / "manifest.json", entries)
+
+        view = get_analytics_view(
+            str(tmp_path),
+            sport="nba",
+            price_quality_filter="all",
+            pregame_min_cum_vol=5000,
+            start_date="2026-04-05",
+            end_date="2026-04-15",
+        )
+
+        assert set(view["match_id"]) == {"nba-new"}
+        assert set(view["sport"]) == {"nba"}
+        # Quantile bands computed against the intersection population (n=1):
+        # single-row population => all rows share the same band.
+        assert view["open_quantile_band"].nunique() == 1

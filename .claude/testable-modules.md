@@ -10,7 +10,10 @@
 - backtest/runner.py — grid runner, universe caching, per-position row build, aggregation
 - backtest/scenarios.py — JSON loader with sweep expansion
 - backtest/triggers/{dip_below_anchor,pct_drop_window}.py — trigger scanners
+- analytics.py — game-record builder + get_analytics_view (sport/date/quality/min_pregame_notional filters + quantile bands)
 - backtest_cli.py — scenario CLI argument parsing + selection
 - charts.py — Plotly figure builders; pure helpers: _get_tipoff, _get_game_end, _collect_vmarkers, _filter_by_min_cum_vol, _nearest_price
 - loaders.py — Data loading/parsing; pure helpers: _is_date_dir, _parse_iso, _build_tricode_map
+- pages/main_dashboard_page.py — pure helpers: _build_data_warning_badge, _normalize_date_range, _encode_game_value/_decode_game_value
+- settings.py — ChartSettings defaults + to_dict roundtrip
 - whales.py — Whale wallet analysis: analyze_whales (classification, thresholds, summary), get_whale_trades (filtering)

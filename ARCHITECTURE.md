@@ -33,6 +33,7 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - Equal favorite-side prices are represented as `Tie` rather than defaulting to token order
 - `stream_game_analytics(...)` yields `(base_record, get_game)` per game, letting bulk pipelines (NBA tipoff) read each `trades.json.gz` exactly once while keeping RAM at one game at a time. The base-records frame persists across Dash restarts at `cache/_base_records/<settings_hash>.pkl` with a sidecar `<settings_hash>.manifest.json` recording each game's `input_fingerprint`; mismatched or new entries are rescanned, the rest hydrate from disk.
 - `get_analytics_view` cache key no longer includes `start_date`/`end_date`. The date filter is applied on `view` between the sport filter and the `quantile_source = view` assignment so quantile bands remain window-local; subsequent ranges in the same process are free.
+- Base records project `pre_game_notional_usdc` and `trade_count` from `manifest.volume_stats`. `get_analytics_view(..., min_pregame_notional=X)` applies a post-cache hard gate against `pre_game_notional_usdc` (USDC notional comparator) so the main-dashboard game-picker can drop low-pregame-volume games without invalidating the cached frame. The cached `cache/_base_records/<settings_hash>.pkl` frame must be deleted once after upgrading; older pickles lack the new columns.
 
 ### `nba_tipoff_cache.py` -- NBA Tipoff Detail-Row Disk Cache
 
@@ -246,6 +247,7 @@ Each registered component module declares a `PARAM_SCHEMA = [...]` constant (typ
 
 - Layout: dark theme, sport/date/game/price-quality controls, info cards (game metadata, pre-game summary, game analytics, chart settings), whale tracker card, sensitivity charts, discrepancy chart, regime transition chart, dip recovery chart, and the pre-game/in-game figures
 - Whale tracker card renders separate full-width aggressor and maker sections rather than a shared two-column layout
+- Main dashboard game-picker (`pages/main_dashboard_page.py`) calls `get_analytics_view(..., min_pregame_notional=pregame_min_cum_vol)` to hard-filter low-volume games and shows a `Filtered N games (< $X pregame vol)` note under the dropdown and inside the Chart Settings card. The game card uses `_build_data_warning_badge` to prepend a red "Likely truncated trade data" badge when `pre_game_notional_usdc < data_warning_min_pregame_vol` (soft threshold from `chart_settings.json`, default $20,000) or `trade_count < 50`.
 - Three callbacks:
   1. Populate sport dropdown from cached analytics records
   2. Populate date and game dropdowns from the active sport / price-quality slice

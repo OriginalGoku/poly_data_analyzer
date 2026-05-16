@@ -15,6 +15,7 @@ Dash+Plotly visualizer for Polymarket sports market trade data. Renders price mo
 - **Game metadata cards** -- Trade count, total volume, price quality, data source, pre-game summary with opening price, drift, and pre-game volume
 - **Game analytics card** -- Shows market-open and tip-off favorite strength for the selected game, with refined interpretable bands (`Toss-Up`, `Lean Favorite`, `Lower Moderate`, `Upper Moderate`, `Lower Strong`, `Upper Strong`) and sport-specific quantile bands (`Q1`, `Q2`, `Q3`). The market-open anchor now uses a short post-threshold pregame VWAP/median window after cumulative volume reaches the configured `Pre-Game Min Cum Vol` threshold.
 - **Sport and price-quality filters** -- Slice the app by `NBA`, `NHL`, or `MLB`, and optionally restrict the analysis population to `all`, `exact`, or `inferred` checkpoint quality
+- **Pregame-volume gate + truncated-data warning** -- Main-dashboard game-picker hard-filters games whose `manifest.volume_stats.pre_game_notional_usdc` is below the configured `Pre-Game Min Cum Vol` (USDC notional). A red "Likely truncated trade data" badge surfaces on the game card when pregame notional drops below the `data_warning_min_pregame_vol` soft threshold (default $20,000) or `trade_count < 50`
 - **Whale tracker** -- Identifies high-volume wallets, classifies them (Market Maker / Directional / Hybrid), and displays separate full-width `Top Aggressors (Takers)` and `Top Liquidity (Makers)` sections with rank, bias, position breakdown, and trade-size stats
 - **Top-10 whale trade markers** -- In-game price chart highlights large trades from the top taker whales, showing rank, team, direction, amount, and price on hover
 - **Top aggressor cumulative panel** -- In-game chart includes a second cumulative-dollar row that tracks each ranked taker whale's buy/sell flow by team over time
@@ -39,6 +40,8 @@ Open `http://localhost:8050` in a browser. Select a date and game from the dropd
 ## Data
 
 Trade data is expected in `data/YYYY-MM-DD/` directories produced by `poly-data-downloader`. See `DATA_SPEC.md` for the full schema.
+
+> Note: after pulling the pregame-volume-filter changes, delete `cache/_base_records/` once. Existing pickled base-records frames pre-date the new `pre_game_notional_usdc` / `trade_count` columns and will rebuild on first run.
 
 Each date directory contains:
 - `manifest.json` -- index of all games for that date

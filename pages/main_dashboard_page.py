@@ -119,6 +119,10 @@ class MainDashboardPage:
                                     clearable=False,
                                     style={"width": "420px", "color": "#111"},
                                 ),
+                                html.Div(
+                                    id="filtered-games-note",
+                                    style={"fontSize": "12px", "color": "#888", "marginTop": "4px"},
+                                ),
                             ]
                         ),
                     ],
@@ -146,6 +150,14 @@ class MainDashboardPage:
                                 info_row("Vol Spike Std Dev", f"{settings_dict['vol_spike_std']}σ"),
                                 info_row("Vol Spike Lookback", f"{settings_dict['vol_spike_lookback']} bars"),
                                 info_row("Pre-Game Min Cum Vol", f"${settings_dict['pregame_min_cum_vol']:,}"),
+                                info_row(
+                                    "Data Warning Min Vol",
+                                    f"${settings_dict['data_warning_min_pregame_vol']:,}",
+                                ),
+                                html.Div(
+                                    id="filtered-games-note-settings",
+                                    style={"fontSize": "12px", "color": "#888", "marginTop": "4px"},
+                                ),
                                 info_row(
                                     "Min Open Favorite Price",
                                     f"{settings_dict.get('analysis_min_open_favorite_price', 0.5):.2f}",
@@ -205,6 +217,8 @@ class MainDashboardPage:
         @app.callback(
             Output("game-picker", "options"),
             Output("game-picker", "value"),
+            Output("filtered-games-note", "children"),
+            Output("filtered-games-note-settings", "children"),
             Input("start-date-picker", "value"),
             Input("end-date-picker", "value"),
             Input("sport-picker", "value"),
@@ -214,17 +228,32 @@ class MainDashboardPage:
         )
         def populate_games(start_date, end_date, sport, price_quality, bucket, search):
             if not start_date or not end_date or not sport:
-                return [], None
+                return [], None, "", ""
             start_date, end_date = _normalize_date_range(start_date, end_date)
-            analytics = get_analytics_view(
+            min_pregame = settings_dict.get("pregame_min_cum_vol", 0)
+            ungated = get_analytics_view(
                 self.data_dir,
                 sport=sport,
                 price_quality_filter=price_quality,
-                pregame_min_cum_vol=settings_dict.get("pregame_min_cum_vol", 0),
+                pregame_min_cum_vol=min_pregame,
                 open_anchor_stat=settings_dict.get("open_anchor_stat", "vwap"),
                 open_anchor_window_min=settings_dict.get("open_anchor_window_min", 5),
                 start_date=start_date,
                 end_date=end_date,
+                min_pregame_notional=0,
+            )
+            if min_pregame > 0 and not ungated.empty and "pre_game_notional_usdc" in ungated.columns:
+                analytics = ungated[
+                    ungated["pre_game_notional_usdc"].fillna(0) >= min_pregame
+                ].copy()
+            else:
+                analytics = ungated.copy()
+            filtered_count = len(ungated) - len(analytics)
+            note = (
+                f"Filtered {filtered_count} game{'s' if filtered_count != 1 else ''} "
+                f"(< ${min_pregame:,.0f} pregame vol)"
+                if filtered_count > 0
+                else ""
             )
             if bucket and bucket != "all":
                 analytics = analytics[analytics["open_interpretable_band"] == bucket].copy()
@@ -244,7 +273,7 @@ class MainDashboardPage:
                     option_values = {o["value"] for o in options}
                     if bt_game in option_values:
                         value = bt_game
-            return options, value
+            return options, value, note, note
 
         @app.callback(
             Output("start-date-picker", "options"),
@@ -450,7 +479,13 @@ class MainDashboardPage:
             cp_meta = trades_meta.get("price_checkpoints_meta", {})
             game_price_quality = cp_meta.get("price_quality", "unknown") if cp_meta else "unknown"
 
-            game_card = [
+            badge = _build_data_warning_badge(
+                volume, settings_dict.get("data_warning_min_pregame_vol", 0)
+            )
+            game_card = []
+            if badge is not None:
+                game_card.append(badge)
+            game_card += [
                 html.H4(f"{manifest['outcomes'][0]} @ {manifest['outcomes'][1]}", style={"marginTop": 0}),
                 info_row("Match ID", match_id),
                 info_row("Sport", manifest.get("sport", "?").upper()),
@@ -504,6 +539,31 @@ def _encode_game_value(date: str, match_id: str) -> str:
 def _decode_game_value(value: str) -> tuple[str, str]:
     date, match_id = value.split("|", 1)
     return date, match_id
+
+
+_TRADE_COUNT_WARNING_THRESHOLD = 50
+
+
+def _build_data_warning_badge(volume_stats: dict, soft_threshold: float):
+    pregame_vol = volume_stats.get("pre_game_notional_usdc")
+    trade_count = volume_stats.get("trade_count")
+    vol_flag = pregame_vol is not None and pregame_vol < soft_threshold
+    count_flag = trade_count is not None and trade_count < _TRADE_COUNT_WARNING_THRESHOLD
+    if not (vol_flag or count_flag):
+        return None
+    pregame_str = f"${pregame_vol:,.0f}" if pregame_vol is not None else "unknown"
+    return html.Div(
+        f"⚠ Likely truncated trade data — pregame volume {pregame_str} "
+        f"(< ${soft_threshold:,.0f} threshold)",
+        style={
+            "backgroundColor": "#5a2222",
+            "color": "#fff",
+            "padding": "6px 10px",
+            "borderRadius": "4px",
+            "marginBottom": "8px",
+            "fontWeight": "bold",
+        },
+    )
 
 
 def _build_pregame_card(trades_df, data, manifest, analysis_summary=None):

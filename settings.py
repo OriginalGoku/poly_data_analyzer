@@ -17,6 +17,7 @@ class ChartSettings:
     vol_spike_std: float = 2.0
     vol_spike_lookback: int = 20
     pregame_min_cum_vol: float = 5000
+    data_warning_min_pregame_vol: float = 20000
     post_game_buffer_min: int = 10
     whale_min_volume_pct: float = 2.0
     whale_max_count: int = 10
@@ -58,6 +59,7 @@ class ChartSettings:
             "vol_spike_std": self.vol_spike_std,
             "vol_spike_lookback": self.vol_spike_lookback,
             "pregame_min_cum_vol": self.pregame_min_cum_vol,
+            "data_warning_min_pregame_vol": self.data_warning_min_pregame_vol,
             "post_game_buffer_min": self.post_game_buffer_min,
             "whale_min_volume_pct": self.whale_min_volume_pct,
             "whale_max_count": self.whale_max_count,

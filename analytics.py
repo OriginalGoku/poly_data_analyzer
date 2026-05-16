@@ -3,11 +3,89 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
+import os
+import pickle
 from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
+
+
+BASE_RECORDS_CACHE_SCHEMA_VERSION = 1
+
+
+def _base_records_settings_hash(
+    pregame_min_cum_vol: float,
+    open_anchor_stat: str,
+    open_anchor_window_min: int,
+) -> str:
+    payload = json.dumps(
+        [float(pregame_min_cum_vol), str(open_anchor_stat), int(open_anchor_window_min)],
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()
+
+
+def _base_records_file_fingerprint(path: Path) -> tuple[int | None, int | None]:
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except FileNotFoundError:
+        return (None, None)
+
+
+def _base_records_input_fingerprint(data_dir: str, date: str, match_id: str) -> str:
+    base = Path(data_dir) / date
+    parts = (
+        _base_records_file_fingerprint(base / f"{match_id}_trades.json.gz"),
+        _base_records_file_fingerprint(base / "manifest.json"),
+        _base_records_file_fingerprint(base / f"{match_id}_events.json.gz"),
+    )
+    return hashlib.sha1(json.dumps(parts).encode("utf-8")).hexdigest()
+
+
+def _load_base_records_cache(cache_dir: Path, settings_hash: str) -> tuple[dict, dict]:
+    """Return (records_by_key, fingerprint_map) from disk. Empty dicts on miss."""
+    data_path = cache_dir / f"{settings_hash}.pkl"
+    manifest_path = cache_dir / f"{settings_hash}.manifest.json"
+    if not (data_path.exists() and manifest_path.exists()):
+        return {}, {}
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        if manifest.get("schema_version") != BASE_RECORDS_CACHE_SCHEMA_VERSION:
+            return {}, {}
+        with open(data_path, "rb") as f:
+            records_by_key: dict = pickle.load(f)
+    except (OSError, pickle.UnpicklingError, json.JSONDecodeError):
+        return {}, {}
+    fingerprint_map = {tuple(k.split("|", 1)): v for k, v in manifest.get("input_fingerprint_map", {}).items()}
+    return records_by_key, fingerprint_map
+
+
+def _save_base_records_cache(
+    cache_dir: Path,
+    settings_hash: str,
+    records_by_key: dict,
+    fingerprint_map: dict,
+) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    data_path = cache_dir / f"{settings_hash}.pkl"
+    manifest_path = cache_dir / f"{settings_hash}.manifest.json"
+    data_tmp = data_path.with_suffix(".pkl.tmp")
+    manifest_tmp = manifest_path.with_suffix(".json.tmp")
+    with open(data_tmp, "wb") as f:
+        pickle.dump(records_by_key, f, protocol=pickle.HIGHEST_PROTOCOL)
+    manifest_payload = {
+        "schema_version": BASE_RECORDS_CACHE_SCHEMA_VERSION,
+        "input_fingerprint_map": {f"{d}|{m}": fp for (d, m), fp in fingerprint_map.items()},
+    }
+    with open(manifest_tmp, "w") as f:
+        json.dump(manifest_payload, f, indent=2)
+    os.replace(data_tmp, data_path)
+    os.replace(manifest_tmp, manifest_path)
 
 
 INTERPRETABLE_BANDS = (
@@ -53,6 +131,7 @@ def get_analytics_view(
     open_anchor_window_min: int = 5,
     start_date: str | None = None,
     end_date: str | None = None,
+    min_pregame_notional: float = 0,
 ) -> pd.DataFrame:
     """Return cached game analytics with quantile bands for the active filter."""
     records = load_game_analytics(
@@ -60,8 +139,6 @@ def get_analytics_view(
         pregame_min_cum_vol=pregame_min_cum_vol,
         open_anchor_stat=open_anchor_stat,
         open_anchor_window_min=open_anchor_window_min,
-        start_date=start_date,
-        end_date=end_date,
     )
     if records.empty:
         return records.copy()
@@ -69,6 +146,14 @@ def get_analytics_view(
     view = records.copy()
     if sport and sport != "all":
         view = view[view["sport"] == sport].copy()
+
+    if start_date is not None:
+        view = view[view["date"] >= start_date].copy()
+    if end_date is not None:
+        view = view[view["date"] <= end_date].copy()
+
+    if min_pregame_notional > 0 and "pre_game_notional_usdc" in view.columns:
+        view = view[view["pre_game_notional_usdc"].fillna(0) >= min_pregame_notional].copy()
 
     quantile_source = view
     if price_quality_filter != "all":
@@ -99,33 +184,41 @@ def load_game_analytics(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> pd.DataFrame:
-    """Load and cache game-level checkpoint analytics for all collected markets."""
-    return _load_game_analytics_cached(
+    """Load and cache game-level checkpoint analytics for all collected markets.
+
+    `start_date`/`end_date` are applied as a post-cache filter so the cached frame
+    is repo-wide and reusable across date windows.
+    """
+    df = _load_game_analytics_cached(
         str(Path(data_dir).resolve()),
         float(pregame_min_cum_vol),
         str(open_anchor_stat),
         int(open_anchor_window_min),
-        start_date,
-        end_date,
     )
+    if df.empty or (start_date is None and end_date is None):
+        return df
+    mask = pd.Series(True, index=df.index)
+    if start_date is not None:
+        mask &= df["date"] >= start_date
+    if end_date is not None:
+        mask &= df["date"] <= end_date
+    return df[mask].copy()
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=2)
 def _load_game_analytics_cached(
     data_dir: str,
     pregame_min_cum_vol: float,
     open_anchor_stat: str,
     open_anchor_window_min: int,
-    start_date: str | None,
-    end_date: str | None,
 ) -> pd.DataFrame:
     return build_game_analytics_dataset(
         data_dir=data_dir,
         pregame_min_cum_vol=pregame_min_cum_vol,
         open_anchor_stat=open_anchor_stat,
         open_anchor_window_min=open_anchor_window_min,
-        start_date=start_date,
-        end_date=end_date,
+        start_date=None,
+        end_date=None,
         progress_observer=None,
     )
 
@@ -202,6 +295,161 @@ def build_game_analytics_dataset(
     return df
 
 
+def stream_game_analytics(
+    data_dir: str = "data",
+    pregame_min_cum_vol: float = 0,
+    open_anchor_stat: str = "vwap",
+    open_anchor_window_min: int = 5,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    progress_observer=None,
+    base_records_cache_dir: str | Path | None = None,
+):
+    """Yield (base_record_dict, get_game) per collected game.
+
+    `get_game` is a zero-arg callable that returns a `loaders.build_loaded_game`
+    shaped dict. It is memoized — first call performs the read, subsequent calls
+    return the cached value. When `base_records_cache_dir` is provided, the
+    streaming helper consults the cached base-records frame and skips
+    trades.json.gz reads for unchanged games (warm cross-restart path).
+    """
+    from loaders import build_loaded_game
+
+    base = Path(data_dir)
+    collected_jobs: list[tuple[str, dict, Path]] = []
+
+    for date_dir in sorted(base.iterdir(), reverse=True):
+        if not date_dir.is_dir():
+            continue
+        if not _date_in_range(date_dir.name, start_date, end_date):
+            continue
+        manifest_path = date_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        with open(manifest_path) as f:
+            entries = json.load(f)
+        for manifest in entries:
+            if manifest.get("status") != "collected":
+                continue
+            trades_path = date_dir / f"{manifest['match_id']}_trades.json.gz"
+            if not trades_path.exists():
+                continue
+            collected_jobs.append((date_dir.name, manifest, trades_path))
+
+    base_cache: dict = {}
+    base_fingerprints: dict = {}
+    base_settings_hash = ""
+    cache_dir_path = Path(base_records_cache_dir) if base_records_cache_dir else None
+    if cache_dir_path is not None:
+        base_settings_hash = _base_records_settings_hash(
+            pregame_min_cum_vol, open_anchor_stat, open_anchor_window_min
+        )
+        base_cache, base_fingerprints = _load_base_records_cache(cache_dir_path, base_settings_hash)
+
+    cache_dirty = False
+    new_base_cache = dict(base_cache)
+    new_fingerprints = dict(base_fingerprints)
+
+    if progress_observer is not None:
+        progress_observer.start(
+            total=len(collected_jobs),
+            description="Streaming game analytics",
+        )
+
+    def _make_lazy_loader(date_name, manifest, trades_path):
+        cached = {"game": None, "trades_data": None}
+
+        def _get_trades_data():
+            if cached["trades_data"] is None:
+                cached["trades_data"] = _read_trade_data(trades_path)
+            return cached["trades_data"]
+
+        def _get_game():
+            if cached["game"] is None:
+                cached["game"] = build_loaded_game(
+                    data_dir, date_name, manifest, _get_trades_data()
+                )
+            return cached["game"]
+
+        _get_game.get_trades_data = _get_trades_data  # type: ignore[attr-defined]
+        return _get_game
+
+    for index, (date_name, manifest, trades_path) in enumerate(collected_jobs, start=1):
+        match_id = manifest["match_id"]
+        key = (date_name, match_id)
+        get_game = _make_lazy_loader(date_name, manifest, trades_path)
+
+        record = None
+        if cache_dir_path is not None:
+            current_fp = _base_records_input_fingerprint(data_dir, date_name, match_id)
+            if base_fingerprints.get(key) == current_fp and key in base_cache:
+                record = dict(base_cache[key])
+            else:
+                trades_data = get_game.get_trades_data()  # type: ignore[attr-defined]
+                record = _compute_base_record(
+                    date_name,
+                    manifest,
+                    trades_data,
+                    pregame_min_cum_vol,
+                    open_anchor_stat,
+                    open_anchor_window_min,
+                )
+                new_base_cache[key] = record
+                new_fingerprints[key] = current_fp
+                cache_dirty = True
+        else:
+            trades_data = get_game.get_trades_data()  # type: ignore[attr-defined]
+            record = _compute_base_record(
+                date_name,
+                manifest,
+                trades_data,
+                pregame_min_cum_vol,
+                open_anchor_stat,
+                open_anchor_window_min,
+            )
+
+        yield record, get_game
+        if progress_observer is not None:
+            progress_observer.advance(
+                index=index,
+                match_id=match_id,
+                date=date_name,
+            )
+
+    if cache_dir_path is not None and cache_dirty:
+        # Drop entries for games no longer present.
+        current_keys = {(d, m["match_id"]) for d, m, _ in collected_jobs}
+        new_base_cache = {k: v for k, v in new_base_cache.items() if k in current_keys}
+        new_fingerprints = {k: v for k, v in new_fingerprints.items() if k in current_keys}
+        _save_base_records_cache(cache_dir_path, base_settings_hash, new_base_cache, new_fingerprints)
+
+    if progress_observer is not None:
+        progress_observer.finish(total=len(collected_jobs))
+
+
+def _compute_base_record(
+    date_name: str,
+    manifest: dict,
+    trades_data: dict,
+    pregame_min_cum_vol: float,
+    open_anchor_stat: str,
+    open_anchor_window_min: int,
+) -> dict:
+    record = _build_game_record(
+        date_name,
+        manifest,
+        trades_data,
+        pregame_min_cum_vol=pregame_min_cum_vol,
+        open_anchor_stat=open_anchor_stat,
+        open_anchor_window_min=open_anchor_window_min,
+    )
+    record["date"] = pd.to_datetime(record["date"]).strftime("%Y-%m-%d")
+    for anchor in ("open", "tipoff"):
+        price = record.get(f"{anchor}_favorite_price")
+        record[f"{anchor}_interpretable_band"] = _assign_interpretable_band(price)
+    return record
+
+
 def _date_in_range(date_name: str, start_date: str | None, end_date: str | None) -> bool:
     if not _looks_like_date(date_name):
         return False
@@ -262,6 +510,8 @@ def _build_game_record(
         "tipoff_favorite_price": tipoff_snapshot["price"],
         "tipoff_available": tipoff_snapshot["price"] is not None,
         "in_game_notional_usdc": manifest.get("volume_stats", {}).get("in_game_notional_usdc"),
+        "pre_game_notional_usdc": manifest.get("volume_stats", {}).get("pre_game_notional_usdc"),
+        "trade_count": manifest.get("volume_stats", {}).get("trade_count"),
     }
 
 
