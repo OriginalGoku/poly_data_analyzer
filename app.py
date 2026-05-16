@@ -10,6 +10,7 @@ from nba_analysis import NBAOpenTipoffAnalysisService
 from pages.backtest_results_page import BacktestResultsPage
 from pages.backtest_runner_page import BacktestRunnerPage
 from pages.main_dashboard_page import MainDashboardPage, _build_analysis_card, _build_whale_card
+from pages.nba_band_drop_recovery_page import NBABandDropRecoveryPage
 from pages.nba_open_tipoff_page import NBAOpenTipoffAnalysisPage
 from pages.scenario_builder_page import ScenarioBuilderPage
 from pages.scenario_results_page import ScenarioResultsPage
@@ -33,9 +34,11 @@ backtest_runner_page = BacktestRunnerPage()
 scenario_runner_page = ScenarioRunnerPage()
 scenario_results_page = ScenarioResultsPage()
 scenario_builder_page = ScenarioBuilderPage()
+band_drop_recovery_page = NBABandDropRecoveryPage(settings=SETTINGS)
 PAGES = {
     main_page.route: main_page,
     nba_analysis_page.route: nba_analysis_page,
+    band_drop_recovery_page.route: band_drop_recovery_page,
     backtest_page.route: backtest_page,
     backtest_runner_page.route: backtest_runner_page,
     scenario_runner_page.route: scenario_runner_page,
@@ -66,6 +69,7 @@ backtest_runner_page.register_callbacks(app)
 scenario_runner_page.register_callbacks(app)
 scenario_results_page.register_callbacks(app)
 scenario_builder_page.register_callbacks(app)
+band_drop_recovery_page.register_callbacks(app)
 
 
 if __name__ == "__main__":
