@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nba_tipoff_cache import (
     NBA_TIPOFF_CACHE_SCHEMA_VERSION,
+    compute_settings_hash,
     load_or_compute_nba_tipoff_detail,
 )
 from settings import ChartSettings
@@ -157,6 +158,49 @@ def test_schema_version_mismatch_invalidates(tmp_path):
     )
     assert row == {"new": True}
     assert compute.calls == 1
+
+
+def test_v1_payload_invalidated_by_schema_bump(tmp_path):
+    data_dir = tmp_path / "data"
+    cache_dir = tmp_path / "cache"
+    _write_minimal_game_files(data_dir, "2026-04-10", "nba-1")
+    cache_path = cache_dir / "2026-04-10" / "nba-1_nba_tipoff.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    settings = ChartSettings(pregame_min_cum_vol=5000)
+    # Hand-write a v1 payload with an otherwise-valid settings/input hash.
+    from nba_tipoff_cache import compute_input_fingerprint
+
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "settings_hash": compute_settings_hash(settings, "A", 0.6),
+                "input_fingerprint": compute_input_fingerprint(data_dir, "2026-04-10", "nba-1"),
+                "row": {"old": True},
+            }
+        )
+    )
+    compute = _ComputeCounter({"new": True})
+
+    row = load_or_compute_nba_tipoff_detail(
+        cache_dir=cache_dir,
+        data_dir=data_dir,
+        date="2026-04-10",
+        match_id="nba-1",
+        game={"trades_df": None, "events": None, "manifest": {}},
+        settings=settings,
+        open_favorite_team="A",
+        open_favorite_price=0.6,
+        compute_fn=compute,
+    )
+    assert row == {"new": True}  # v1 rejected -> recompute
+    assert compute.calls == 1
+
+
+def test_settings_hash_depends_on_entry_window_trades():
+    h30 = compute_settings_hash(ChartSettings(tipoff_entry_window_trades=30), "A", 0.6)
+    h50 = compute_settings_hash(ChartSettings(tipoff_entry_window_trades=50), "A", 0.6)
+    assert h30 != h50
 
 
 def test_input_fingerprint_invalidates_on_trades_mtime_change(tmp_path):

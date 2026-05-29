@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-NBA_TIPOFF_CACHE_SCHEMA_VERSION = 1
+NBA_TIPOFF_CACHE_SCHEMA_VERSION = 2
 
 
 def _stable_hash(parts: tuple) -> str:
@@ -25,6 +25,7 @@ def compute_settings_hash(settings, open_favorite_team, open_favorite_price) -> 
             float(getattr(settings, "vol_spike_std", 0)),
             int(getattr(settings, "vol_spike_lookback", 0)),
             float(getattr(settings, "post_game_buffer_min", 0)),
+            int(getattr(settings, "tipoff_entry_window_trades", 0)),
             open_favorite_team,
             None if open_favorite_price is None else float(open_favorite_price),
         )
