@@ -406,3 +406,115 @@ def test_service_computes_in_game_switch_and_open_favorite_excursion_metrics(tmp
     assert first_group["any_in_game_switch_rate"] == pytest.approx(1.0)
     assert first_group["mean_open_favorite_in_game_min_price"] == pytest.approx(0.35)
     assert first_group["mean_open_favorite_max_adverse_excursion_pct"] == pytest.approx(0.30 / 0.65)
+
+
+def _ingame_metrics_fixture():
+    """Two-team in-game scenario where open and tip-off favorites differ.
+
+    Away-side in-game prices: 0.20, 0.50, 0.40 -> min 0.20, max 0.50.
+    Home-side (1 - away):      0.80, 0.50, 0.60 -> min 0.50, max 0.80.
+    """
+    tipoff = pd.Timestamp("2026-04-10T19:00:00Z")
+    trades_df = pd.DataFrame(
+        {
+            "datetime": [
+                tipoff + pd.Timedelta(minutes=1),
+                tipoff + pd.Timedelta(minutes=5),
+                tipoff + pd.Timedelta(minutes=10),
+            ],
+            "asset": ["a1", "a1", "a1"],
+            "price": [0.20, 0.50, 0.40],
+            "size": [1000, 1000, 1000],
+        }
+    )
+    events = [
+        {"time_actual_dt": tipoff, "away_score": 0, "home_score": 0},
+        {
+            "time_actual_dt": tipoff + pd.Timedelta(minutes=15),
+            "away_score": 100,
+            "home_score": 98,
+        },
+    ]
+    manifest = {"token_ids": ["a1", "h1"], "outcomes": ["Away", "Home"]}
+    return trades_df, events, manifest
+
+
+def test_in_game_metrics_track_open_and_tipoff_sides_independently():
+    from nba_analysis import _compute_in_game_open_favorite_metrics
+
+    trades_df, events, manifest = _ingame_metrics_fixture()
+    metrics = _compute_in_game_open_favorite_metrics(
+        trades_df,
+        events,
+        manifest,
+        ChartSettings(post_game_buffer_min=10),
+        open_favorite_team="Away",
+        open_favorite_price=0.45,
+        tipoff_favorite_team="Home",
+        tipoff_favorite_price=0.55,
+    )
+
+    # Open favorite = Away side
+    assert metrics["open_favorite_in_game_min_price"] == pytest.approx(0.20)
+    assert metrics["open_favorite_in_game_max_price"] == pytest.approx(0.50)
+    assert metrics["open_favorite_max_adverse_excursion"] == pytest.approx(0.25)
+    assert metrics["open_favorite_max_favorable_excursion"] == pytest.approx(0.05)
+
+    # Tip-off favorite = Home side (distinct path)
+    assert metrics["tipoff_favorite_in_game_min_price"] == pytest.approx(0.50)
+    assert metrics["tipoff_favorite_in_game_max_price"] == pytest.approx(0.80)
+    assert metrics["tipoff_favorite_max_adverse_excursion"] == pytest.approx(0.05)
+    assert metrics["tipoff_favorite_max_favorable_excursion"] == pytest.approx(0.25)
+    assert metrics["tipoff_favorite_max_adverse_excursion_pct"] == pytest.approx(0.05 / 0.55)
+
+    # The two sides genuinely differ
+    assert (
+        metrics["tipoff_favorite_in_game_min_price"]
+        != metrics["open_favorite_in_game_min_price"]
+    )
+
+
+def test_in_game_metrics_parity_when_open_equals_tipoff_favorite():
+    from nba_analysis import _compute_in_game_open_favorite_metrics
+
+    trades_df, events, manifest = _ingame_metrics_fixture()
+    metrics = _compute_in_game_open_favorite_metrics(
+        trades_df,
+        events,
+        manifest,
+        ChartSettings(post_game_buffer_min=10),
+        open_favorite_team="Away",
+        open_favorite_price=0.45,
+        tipoff_favorite_team="Away",
+        tipoff_favorite_price=0.45,
+    )
+    assert (
+        metrics["tipoff_favorite_in_game_min_price"]
+        == metrics["open_favorite_in_game_min_price"]
+    )
+    assert (
+        metrics["tipoff_favorite_in_game_max_price"]
+        == metrics["open_favorite_in_game_max_price"]
+    )
+    assert (
+        metrics["tipoff_favorite_max_adverse_excursion"]
+        == metrics["open_favorite_max_adverse_excursion"]
+    )
+
+
+def test_in_game_metrics_tipoff_none_when_team_undetermined():
+    from nba_analysis import _compute_in_game_open_favorite_metrics
+
+    trades_df, events, manifest = _ingame_metrics_fixture()
+    metrics = _compute_in_game_open_favorite_metrics(
+        trades_df,
+        events,
+        manifest,
+        ChartSettings(post_game_buffer_min=10),
+        open_favorite_team="Away",
+        open_favorite_price=0.45,
+        tipoff_favorite_team=None,
+        tipoff_favorite_price=None,
+    )
+    assert metrics["tipoff_favorite_in_game_min_price"] is None
+    assert metrics["tipoff_favorite_max_adverse_excursion"] is None

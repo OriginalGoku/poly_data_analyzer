@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import lru_cache, partial
 from math import sqrt
 from pathlib import Path
 from typing import Any
@@ -745,7 +745,11 @@ def _build_nba_analysis_dataset(
                 settings=settings,
                 open_favorite_team=base_record.get("open_favorite_team"),
                 open_favorite_price=base_record.get("open_favorite_price"),
-                compute_fn=_compute_nba_detail_row_from_game,
+                compute_fn=partial(
+                    _compute_nba_detail_row_from_game,
+                    tipoff_favorite_team=base_record.get("tipoff_favorite_team"),
+                    tipoff_favorite_price=base_record.get("tipoff_favorite_price"),
+                ),
             )
         else:
             details = _compute_nba_detail_row_from_game(
@@ -753,6 +757,8 @@ def _build_nba_analysis_dataset(
                 settings,
                 base_record.get("open_favorite_team"),
                 base_record.get("open_favorite_price"),
+                base_record.get("tipoff_favorite_team"),
+                base_record.get("tipoff_favorite_price"),
             )
         merged = {**base_record, **details}
         merged["favorite_move_signed"] = _compute_signed_move(
@@ -857,11 +863,17 @@ def _compute_nba_detail_row_from_game(
     settings: ChartSettings,
     open_favorite_team: str | None,
     open_favorite_price: float | None,
+    tipoff_favorite_team: str | None = None,
+    tipoff_favorite_price: float | None = None,
 ) -> dict[str, Any]:
     """Compute per-game detail metrics from an already-loaded game dict.
 
     Streaming entry point: avoids the second trades.json.gz read that the
     cached `_load_nba_detail_row` wrapper performs via `load_game`.
+
+    `tipoff_favorite_team` / `tipoff_favorite_price` originate in the base
+    record (see `analytics.py`), not in `compute_metrics`; the caller threads
+    them in so the tip-off-side in-game path can be measured.
     """
     path_analyzer = PregameFavoritePathAnalyzer(settings)
     details = path_analyzer.compute_metrics(game["trades_df"], game["events"])
@@ -874,6 +886,8 @@ def _compute_nba_detail_row_from_game(
             settings,
             open_favorite_team,
             open_favorite_price,
+            tipoff_favorite_team,
+            tipoff_favorite_price,
         )
     )
     details.update(
@@ -913,6 +927,53 @@ def _favorite_changed(open_team: str | None, tipoff_team: str | None) -> bool:
     return open_team != tipoff_team
 
 
+def _in_game_excursion_metrics(
+    price_path: pd.DataFrame,
+    team_col: str,
+    anchor_price: float | None,
+    tipoff_time: pd.Timestamp,
+    prefix: str,
+) -> dict[str, Any]:
+    """Min/max/MAE/MFE for one team side over the in-game price path.
+
+    Shared by the open-favorite and tip-off-favorite branches; `prefix` selects
+    the output key namespace (``open_favorite`` or ``tipoff_favorite``).
+    """
+    out = {
+        f"{prefix}_in_game_min_price": None,
+        f"{prefix}_in_game_max_price": None,
+        f"{prefix}_time_to_min_seconds": None,
+        f"{prefix}_time_to_max_seconds": None,
+        f"{prefix}_max_adverse_excursion": None,
+        f"{prefix}_max_adverse_excursion_pct": None,
+        f"{prefix}_max_favorable_excursion": None,
+        f"{prefix}_max_favorable_excursion_pct": None,
+    }
+    team_series = price_path[team_col].dropna()
+    if team_series.empty:
+        return out
+    min_idx = team_series.idxmin()
+    max_idx = team_series.idxmax()
+    min_price = float(team_series.loc[min_idx])
+    max_price = float(team_series.loc[max_idx])
+    out[f"{prefix}_in_game_min_price"] = min_price
+    out[f"{prefix}_in_game_max_price"] = max_price
+    out[f"{prefix}_time_to_min_seconds"] = float((min_idx - tipoff_time).total_seconds())
+    out[f"{prefix}_time_to_max_seconds"] = float((max_idx - tipoff_time).total_seconds())
+    if anchor_price is not None and not pd.isna(anchor_price):
+        anchor = float(anchor_price)
+        out[f"{prefix}_max_adverse_excursion"] = max(anchor - min_price, 0.0)
+        out[f"{prefix}_max_favorable_excursion"] = max(max_price - anchor, 0.0)
+        if anchor > 0:
+            out[f"{prefix}_max_adverse_excursion_pct"] = (
+                out[f"{prefix}_max_adverse_excursion"] / anchor
+            )
+            out[f"{prefix}_max_favorable_excursion_pct"] = (
+                out[f"{prefix}_max_favorable_excursion"] / anchor
+            )
+    return out
+
+
 def _compute_in_game_open_favorite_metrics(
     trades_df: pd.DataFrame,
     events: list[dict] | None,
@@ -920,6 +981,8 @@ def _compute_in_game_open_favorite_metrics(
     settings: ChartSettings,
     open_favorite_team: str | None,
     open_favorite_price: float | None,
+    tipoff_favorite_team: str | None = None,
+    tipoff_favorite_price: float | None = None,
 ) -> dict[str, Any]:
     metrics = {
         "last_in_game_favorite_team": None,
@@ -934,6 +997,14 @@ def _compute_in_game_open_favorite_metrics(
         "open_favorite_max_adverse_excursion_pct": None,
         "open_favorite_max_favorable_excursion": None,
         "open_favorite_max_favorable_excursion_pct": None,
+        "tipoff_favorite_in_game_min_price": None,
+        "tipoff_favorite_in_game_max_price": None,
+        "tipoff_favorite_time_to_min_seconds": None,
+        "tipoff_favorite_time_to_max_seconds": None,
+        "tipoff_favorite_max_adverse_excursion": None,
+        "tipoff_favorite_max_adverse_excursion_pct": None,
+        "tipoff_favorite_max_favorable_excursion": None,
+        "tipoff_favorite_max_favorable_excursion_pct": None,
     }
     if not events:
         return metrics
@@ -986,27 +1057,19 @@ def _compute_in_game_open_favorite_metrics(
 
     if open_favorite_team in (away_team, home_team):
         team_col = "away_price" if open_favorite_team == away_team else "home_price"
-        team_series = price_path[team_col].dropna()
-        if not team_series.empty:
-            min_idx = team_series.idxmin()
-            max_idx = team_series.idxmax()
-            min_price = float(team_series.loc[min_idx])
-            max_price = float(team_series.loc[max_idx])
-            metrics["open_favorite_in_game_min_price"] = min_price
-            metrics["open_favorite_in_game_max_price"] = max_price
-            metrics["open_favorite_time_to_min_seconds"] = float((min_idx - tipoff_time).total_seconds())
-            metrics["open_favorite_time_to_max_seconds"] = float((max_idx - tipoff_time).total_seconds())
-            if open_favorite_price is not None and not pd.isna(open_favorite_price):
-                open_price = float(open_favorite_price)
-                metrics["open_favorite_max_adverse_excursion"] = max(open_price - min_price, 0.0)
-                metrics["open_favorite_max_favorable_excursion"] = max(max_price - open_price, 0.0)
-                if open_price > 0:
-                    metrics["open_favorite_max_adverse_excursion_pct"] = (
-                        metrics["open_favorite_max_adverse_excursion"] / open_price
-                    )
-                    metrics["open_favorite_max_favorable_excursion_pct"] = (
-                        metrics["open_favorite_max_favorable_excursion"] / open_price
-                    )
+        metrics.update(
+            _in_game_excursion_metrics(
+                price_path, team_col, open_favorite_price, tipoff_time, "open_favorite"
+            )
+        )
+
+    if tipoff_favorite_team in (away_team, home_team):
+        team_col = "away_price" if tipoff_favorite_team == away_team else "home_price"
+        metrics.update(
+            _in_game_excursion_metrics(
+                price_path, team_col, tipoff_favorite_price, tipoff_time, "tipoff_favorite"
+            )
+        )
 
     metrics["last_in_game_favorite_team"] = last_in_game_favorite_team
     metrics["favorite_changed_open_to_game_end"] = bool(
