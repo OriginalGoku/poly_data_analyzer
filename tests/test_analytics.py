@@ -633,3 +633,53 @@ class TestAnalytics:
         # Quantile bands computed against the intersection population (n=1):
         # single-row population => all rows share the same band.
         assert view["open_quantile_band"].nunique() == 1
+
+    def test_load_game_analytics_projects_extreme_columns(self, tmp_path):
+        """The main-dashboard analytics frame must carry the per-team in-game
+        extreme columns so _apply_bucket_and_threshold can actually filter."""
+        data_dir = tmp_path / "data"
+        date_dir = data_dir / "2026-04-10"
+        manifest = [{
+            "match_id": "g1",
+            "sport": "nba",
+            "status": "collected",
+            "away_team": "A",
+            "home_team": "B",
+            "outcomes": ["A", "B"],
+            "token_ids": ["t1", "t2"],
+            "gamma_start_time": "2026-04-10T19:00:00Z",
+            "gamma_closed_time": "2026-04-10T22:00:00Z",
+        }]
+        _write_manifest(date_dir / "manifest.json", manifest)
+        _write_trade_file(
+            date_dir / "g1_trades.json.gz",
+            {
+                "match_id": "g1",
+                "sport": "nba",
+                "price_checkpoints_meta": {"price_quality": "exact"},
+                "price_checkpoints": {
+                    "t1": {"selected_early_price": 0.4, "selected_early_price_source": "clob_open", "last_pregame_trade_price": 0.4},
+                    "t2": {"selected_early_price": 0.6, "selected_early_price_source": "clob_open", "last_pregame_trade_price": 0.6},
+                },
+                "trades": [
+                    # pregame (gamma_start_time = 2026-04-10T19:00Z = epoch 1775847600)
+                    {"timestamp": 1775847500, "asset": "t1", "price": 0.40, "size": 3000},
+                    {"timestamp": 1775847501, "asset": "t2", "price": 0.60, "size": 3000},
+                    # in-game
+                    {"timestamp": 1775847700, "asset": "t1", "price": 0.55, "size": 100},
+                    {"timestamp": 1775847800, "asset": "t2", "price": 0.30, "size": 100},
+                ],
+            },
+        )
+
+        df = load_game_analytics(str(data_dir), pregame_min_cum_vol=5000)
+
+        row = df.iloc[0]
+        for col in (
+            "away_in_game_min_price",
+            "away_in_game_max_price",
+            "home_in_game_min_price",
+            "home_in_game_max_price",
+        ):
+            assert col in df.columns, f"missing {col}"
+            assert row[col] is not None, f"{col} should be populated for this fixture"

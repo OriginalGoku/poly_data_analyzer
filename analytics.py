@@ -277,18 +277,23 @@ def build_game_analytics_dataset(
             description="Building base analytics records",
         )
 
+    sidecar_cache_dir = Path(data_dir).resolve().parent / "cache"
     for index, (date_name, manifest, trades_path) in enumerate(collected_jobs, start=1):
             trades_data = _read_trade_data(trades_path)
-            records.append(
-                _build_game_record(
-                    date_name,
-                    manifest,
-                    trades_data,
-                    pregame_min_cum_vol=pregame_min_cum_vol,
-                    open_anchor_stat=open_anchor_stat,
-                    open_anchor_window_min=open_anchor_window_min,
-                )
+            record = _build_game_record(
+                date_name,
+                manifest,
+                trades_data,
+                pregame_min_cum_vol=pregame_min_cum_vol,
+                open_anchor_stat=open_anchor_stat,
+                open_anchor_window_min=open_anchor_window_min,
             )
+            extremes_row = _load_or_compute_extremes(
+                sidecar_cache_dir, str(data_dir), date_name, manifest, trades_data
+            )
+            for col in _INGAME_EXTREME_COLUMNS:
+                record[col] = extremes_row.get(col) if extremes_row else None
+            records.append(record)
             if progress_observer is not None:
                 progress_observer.advance(
                     index=index,
@@ -447,6 +452,33 @@ def stream_game_analytics(
         progress_observer.finish(total=len(collected_jobs))
 
 
+def _load_or_compute_extremes(
+    sidecar_cache_dir: Path | None,
+    data_dir: str | None,
+    date_name: str,
+    manifest: dict,
+    trades_data: dict,
+) -> dict | None:
+    if sidecar_cache_dir is None or data_dir is None:
+        return None
+    from ingame_extremes import load_or_compute_ingame_extremes
+    from loaders import build_loaded_game
+
+    def _provider():
+        return build_loaded_game(data_dir, date_name, manifest, trades_data)
+
+    try:
+        return load_or_compute_ingame_extremes(
+            cache_dir=sidecar_cache_dir,
+            data_dir=data_dir,
+            date=date_name,
+            match_id=manifest["match_id"],
+            game_provider=_provider,
+        )
+    except Exception:
+        return None
+
+
 def _compute_base_record(
     date_name: str,
     manifest: dict,
@@ -470,26 +502,9 @@ def _compute_base_record(
         price = record.get(f"{anchor}_favorite_price")
         record[f"{anchor}_interpretable_band"] = _assign_interpretable_band(price)
 
-    extremes_row = None
-    if sidecar_cache_dir is not None and data_dir is not None:
-        from ingame_extremes import load_or_compute_ingame_extremes
-        from loaders import build_loaded_game
-
-        match_id = manifest["match_id"]
-
-        def _provider():
-            return build_loaded_game(data_dir, date_name, manifest, trades_data)
-
-        try:
-            extremes_row = load_or_compute_ingame_extremes(
-                cache_dir=sidecar_cache_dir,
-                data_dir=data_dir,
-                date=date_name,
-                match_id=match_id,
-                game_provider=_provider,
-            )
-        except Exception:
-            extremes_row = None
+    extremes_row = _load_or_compute_extremes(
+        sidecar_cache_dir, data_dir, date_name, manifest, trades_data
+    )
     for col in _INGAME_EXTREME_COLUMNS:
         record[col] = extremes_row.get(col) if extremes_row else None
     return record
