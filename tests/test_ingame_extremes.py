@@ -152,6 +152,23 @@ def test_per_team_with_home_token_major_order():
     assert row["home_in_game_max_price"] == pytest.approx(0.8)
 
 
+def test_full_window_max_includes_post_end_trades():
+    """Regression: a post-end trade above the in-game max must surface in
+    full-window extremes so the dashboard threshold filter catches it."""
+    events = [_score_event(100, 0, 0), _score_event(200, 2, 1)]
+    trades = _trades_df(
+        [
+            (150, HOME_TOKEN, 0.30),  # in-game home_price=0.30 → away=0.70
+            (350, HOME_TOKEN, 0.999),  # POST-end home_price=0.999 → away=0.001
+        ]
+    )
+    row = compute_ingame_extremes(_manifest(), events, trades, _ts(50), _ts(500))
+    # in-game window ends at max(score_times)=200, so the 350 trade is post-end.
+    assert row["home_in_game_max_price"] == pytest.approx(0.30)
+    assert row["home_full_max_price"] == pytest.approx(0.999)
+    assert row["away_full_min_price"] == pytest.approx(0.001)
+
+
 def test_empty_trades_returns_empty_row():
     row = compute_ingame_extremes(_manifest(), events=None, trades_df=pd.DataFrame(), gamma_start=_ts(100), gamma_closed=_ts(300))
     assert row["away_in_game_min_price"] is None

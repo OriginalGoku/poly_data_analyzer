@@ -640,8 +640,10 @@ def _apply_bucket_and_threshold(
 
     if threshold_mode in ("below", "above") and threshold_value is not None and not analytics.empty:
         fav_team = analytics[fav_team_col]
-        away_max = analytics.get("away_in_game_max_price")
-        home_max = analytics.get("home_in_game_max_price")
+        # Full trade-window max — includes post-end settlement noise — so games
+        # that only reached the threshold post-game are still surfaced.
+        away_max = analytics.get("away_full_max_price")
+        home_max = analytics.get("home_full_max_price")
         if away_max is not None and home_max is not None:
             fav_max = pd.Series(
                 np.where(fav_team == analytics["away_team"], away_max, home_max),

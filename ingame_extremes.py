@@ -35,7 +35,7 @@ from typing import Any, Callable
 import pandas as pd
 
 
-INGAME_EXTREMES_SCHEMA_VERSION = 1
+INGAME_EXTREMES_SCHEMA_VERSION = 2
 
 
 def _stable_hash(parts: tuple) -> str:
@@ -67,11 +67,23 @@ def _empty_row(away_team: str | None, home_team: str | None) -> dict:
         "away_in_game_max_price": None,
         "home_in_game_min_price": None,
         "home_in_game_max_price": None,
+        "away_full_min_price": None,
+        "away_full_max_price": None,
+        "home_full_min_price": None,
+        "home_full_max_price": None,
         "tipoff_source": "unavailable",
         "window_quality": "none",
         "window_start": None,
         "window_end": None,
     }
+
+
+def _per_team_prices(trades_df, away_token: str):
+    """Return (away_price, home_price) Series aligned to trades_df.index."""
+    away_price = trades_df["price"].astype(float).copy()
+    home_mask = (trades_df["asset"] != away_token).values
+    away_price.loc[trades_df.index[home_mask]] = 1.0 - away_price.loc[trades_df.index[home_mask]]
+    return away_price, 1.0 - away_price
 
 
 def _has_score_events(events: list[dict] | None) -> bool:
@@ -151,23 +163,30 @@ def compute_ingame_extremes(
     row = _empty_row(away_team, home_team)
     row["tipoff_source"] = tipoff_source
     row["window_quality"] = window_quality
+
+    away_token = token_ids[0]
+    away_full, home_full = _per_team_prices(trades_df, away_token)
+    away_full_clean = away_full.dropna()
+    home_full_clean = home_full.dropna()
+    if not away_full_clean.empty:
+        row["away_full_min_price"] = float(away_full_clean.min())
+        row["away_full_max_price"] = float(away_full_clean.max())
+    if not home_full_clean.empty:
+        row["home_full_min_price"] = float(home_full_clean.min())
+        row["home_full_max_price"] = float(home_full_clean.max())
+
     if window_start is None or window_end is None or window_end <= window_start:
         return row
 
     ingame = trades_df[
         (trades_df["datetime"] >= window_start) & (trades_df["datetime"] <= window_end)
     ].sort_values("datetime")
+    row["window_start"] = window_start.isoformat() if hasattr(window_start, "isoformat") else str(window_start)
+    row["window_end"] = window_end.isoformat() if hasattr(window_end, "isoformat") else str(window_end)
     if ingame.empty:
-        row["window_start"] = window_start.isoformat() if hasattr(window_start, "isoformat") else str(window_start)
-        row["window_end"] = window_end.isoformat() if hasattr(window_end, "isoformat") else str(window_end)
         return row
 
-    away_token = token_ids[0]
-    away_price = ingame["price"].astype(float).copy()
-    home_mask = (ingame["asset"] != away_token).values
-    away_price.loc[ingame.index[home_mask]] = 1.0 - away_price.loc[ingame.index[home_mask]]
-    home_price = 1.0 - away_price
-
+    away_price, home_price = _per_team_prices(ingame, away_token)
     away_clean = away_price.dropna()
     home_clean = home_price.dropna()
     if not away_clean.empty:
@@ -177,8 +196,6 @@ def compute_ingame_extremes(
         row["home_in_game_min_price"] = float(home_clean.min())
         row["home_in_game_max_price"] = float(home_clean.max())
 
-    row["window_start"] = window_start.isoformat() if hasattr(window_start, "isoformat") else str(window_start)
-    row["window_end"] = window_end.isoformat() if hasattr(window_end, "isoformat") else str(window_end)
     return row
 
 

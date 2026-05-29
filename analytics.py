@@ -13,17 +13,25 @@ from pathlib import Path
 import pandas as pd
 
 
-BASE_RECORDS_CACHE_SCHEMA_VERSION = 2
+BASE_RECORDS_CACHE_SCHEMA_VERSION = 3
 
 # Columns projected from the settings-independent ingame_extremes sidecar.
 # Survive future settings-hash changes without recompute. _load_base_records_cache
 # treats their absence in a loaded row as a schema-skew indicator and forces
 # regeneration (defends against future additive fields skipping the version bump).
+# *_in_game_* are bounded by the resolved in-game window (score events / gamma).
+# *_full_* are over the entire trades file (covers pre-game + in-game + post-end
+# settlement noise); used by the dashboard "Anchor-side price filter" so games
+# that only reached the threshold post-end aren't silently excluded.
 _INGAME_EXTREME_COLUMNS = (
     "away_in_game_min_price",
     "away_in_game_max_price",
     "home_in_game_min_price",
     "home_in_game_max_price",
+    "away_full_min_price",
+    "away_full_max_price",
+    "home_full_min_price",
+    "home_full_max_price",
 )
 
 

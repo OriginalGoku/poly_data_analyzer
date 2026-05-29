@@ -262,6 +262,10 @@ class TestBaseRecordsCache:
                 "away_in_game_max_price": 0.7,
                 "home_in_game_min_price": 0.3,
                 "home_in_game_max_price": 0.6,
+                "away_full_min_price": 0.35,
+                "away_full_max_price": 0.75,
+                "home_full_min_price": 0.25,
+                "home_full_max_price": 0.65,
             }
         }
         fingerprints = {("2026-04-10", "g1"): "fp-1"}

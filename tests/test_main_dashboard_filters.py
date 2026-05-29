@@ -41,8 +41,8 @@ def _row(
         "tipoff_available": tipoff_available,
         "open_favorite_team": open_fav,
         "tipoff_favorite_team": tipoff_fav,
-        "away_in_game_max_price": away_max,
-        "home_in_game_max_price": home_max,
+        "away_full_max_price": away_max,
+        "home_full_max_price": home_max,
     }
 
 
