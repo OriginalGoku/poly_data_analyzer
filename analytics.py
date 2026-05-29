@@ -13,7 +13,18 @@ from pathlib import Path
 import pandas as pd
 
 
-BASE_RECORDS_CACHE_SCHEMA_VERSION = 1
+BASE_RECORDS_CACHE_SCHEMA_VERSION = 2
+
+# Columns projected from the settings-independent ingame_extremes sidecar.
+# Survive future settings-hash changes without recompute. _load_base_records_cache
+# treats their absence in a loaded row as a schema-skew indicator and forces
+# regeneration (defends against future additive fields skipping the version bump).
+_INGAME_EXTREME_COLUMNS = (
+    "away_in_game_min_price",
+    "away_in_game_max_price",
+    "home_in_game_min_price",
+    "home_in_game_max_price",
+)
 
 
 def _base_records_settings_hash(
@@ -62,6 +73,10 @@ def _load_base_records_cache(cache_dir: Path, settings_hash: str) -> tuple[dict,
     except (OSError, pickle.UnpicklingError, json.JSONDecodeError):
         return {}, {}
     fingerprint_map = {tuple(k.split("|", 1)): v for k, v in manifest.get("input_fingerprint_map", {}).items()}
+    if records_by_key:
+        sample = next(iter(records_by_key.values()))
+        if not all(col in sample for col in _INGAME_EXTREME_COLUMNS):
+            return {}, {}
     return records_by_key, fingerprint_map
 
 
@@ -340,6 +355,7 @@ def stream_game_analytics(
     base_fingerprints: dict = {}
     base_settings_hash = ""
     cache_dir_path = Path(base_records_cache_dir) if base_records_cache_dir else None
+    sidecar_cache_dir = cache_dir_path.parent if cache_dir_path is not None else None
     if cache_dir_path is not None:
         base_settings_hash = _base_records_settings_hash(
             pregame_min_cum_vol, open_anchor_stat, open_anchor_window_min
@@ -393,6 +409,8 @@ def stream_game_analytics(
                     pregame_min_cum_vol,
                     open_anchor_stat,
                     open_anchor_window_min,
+                    sidecar_cache_dir=sidecar_cache_dir,
+                    data_dir=data_dir,
                 )
                 new_base_cache[key] = record
                 new_fingerprints[key] = current_fp
@@ -406,6 +424,8 @@ def stream_game_analytics(
                 pregame_min_cum_vol,
                 open_anchor_stat,
                 open_anchor_window_min,
+                sidecar_cache_dir=sidecar_cache_dir,
+                data_dir=data_dir,
             )
 
         yield record, get_game
@@ -434,6 +454,8 @@ def _compute_base_record(
     pregame_min_cum_vol: float,
     open_anchor_stat: str,
     open_anchor_window_min: int,
+    sidecar_cache_dir: Path | None = None,
+    data_dir: str | None = None,
 ) -> dict:
     record = _build_game_record(
         date_name,
@@ -447,6 +469,29 @@ def _compute_base_record(
     for anchor in ("open", "tipoff"):
         price = record.get(f"{anchor}_favorite_price")
         record[f"{anchor}_interpretable_band"] = _assign_interpretable_band(price)
+
+    extremes_row = None
+    if sidecar_cache_dir is not None and data_dir is not None:
+        from ingame_extremes import load_or_compute_ingame_extremes
+        from loaders import build_loaded_game
+
+        match_id = manifest["match_id"]
+
+        def _provider():
+            return build_loaded_game(data_dir, date_name, manifest, trades_data)
+
+        try:
+            extremes_row = load_or_compute_ingame_extremes(
+                cache_dir=sidecar_cache_dir,
+                data_dir=data_dir,
+                date=date_name,
+                match_id=match_id,
+                game_provider=_provider,
+            )
+        except Exception:
+            extremes_row = None
+    for col in _INGAME_EXTREME_COLUMNS:
+        record[col] = extremes_row.get(col) if extremes_row else None
     return record
 
 

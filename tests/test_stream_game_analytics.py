@@ -254,10 +254,69 @@ class TestBaseRecordsCache:
     def test_save_load_roundtrip(self, tmp_path):
         cache_dir = tmp_path / "cache"
         settings_hash = _base_records_settings_hash(5000.0, "vwap", 5)
-        records = {("2026-04-10", "g1"): {"match_id": "g1", "open_favorite_price": 0.6}}
+        records = {
+            ("2026-04-10", "g1"): {
+                "match_id": "g1",
+                "open_favorite_price": 0.6,
+                "away_in_game_min_price": 0.4,
+                "away_in_game_max_price": 0.7,
+                "home_in_game_min_price": 0.3,
+                "home_in_game_max_price": 0.6,
+            }
+        }
         fingerprints = {("2026-04-10", "g1"): "fp-1"}
         _save_base_records_cache(cache_dir, settings_hash, records, fingerprints)
 
         loaded_records, loaded_fps = _load_base_records_cache(cache_dir, settings_hash)
         assert loaded_records == records
         assert loaded_fps == fingerprints
+
+    def test_missing_extreme_columns_invalidates_cache(self, tmp_path):
+        """A pickle from an older schema (no extreme columns) is treated as a miss."""
+        cache_dir = tmp_path / "cache"
+        settings_hash = _base_records_settings_hash(5000.0, "vwap", 5)
+        records = {("2026-04-10", "g1"): {"match_id": "g1", "open_favorite_price": 0.6}}
+        fingerprints = {("2026-04-10", "g1"): "fp-1"}
+        _save_base_records_cache(cache_dir, settings_hash, records, fingerprints)
+
+        loaded_records, loaded_fps = _load_base_records_cache(cache_dir, settings_hash)
+        assert loaded_records == {}
+        assert loaded_fps == {}
+
+
+class TestIngameExtremesProjection:
+    def test_extremes_columns_present_when_cache_dir_set(self, tmp_path):
+        data = tmp_path / "data"
+        cache_dir = tmp_path / "cache" / "_base_records"
+        _seed_game(data, "2026-04-10", "g1")
+
+        records = [
+            r for r, _ in stream_game_analytics(
+                str(data),
+                pregame_min_cum_vol=5000,
+                base_records_cache_dir=cache_dir,
+            )
+        ]
+        for col in (
+            "away_in_game_min_price",
+            "away_in_game_max_price",
+            "home_in_game_min_price",
+            "home_in_game_max_price",
+        ):
+            assert col in records[0]
+        # The sidecar JSON appears alongside the trades for the date.
+        sidecar = tmp_path / "cache" / "2026-04-10" / "g1_ingame_extremes.json"
+        assert sidecar.exists()
+
+    def test_extremes_columns_none_when_no_cache_dir(self, tmp_path):
+        data = tmp_path / "data"
+        _seed_game(data, "2026-04-10", "g1")
+        records = [r for r, _ in stream_game_analytics(str(data), pregame_min_cum_vol=5000)]
+        for col in (
+            "away_in_game_min_price",
+            "away_in_game_max_price",
+            "home_in_game_min_price",
+            "home_in_game_max_price",
+        ):
+            assert col in records[0]
+            assert records[0][col] is None
