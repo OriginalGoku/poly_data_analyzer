@@ -19,6 +19,22 @@ def test_to_dict_includes_new_field():
     assert d["pregame_min_cum_vol"] == 5000
 
 
+def test_default_max_favorite_price_threshold():
+    assert ChartSettings().max_favorite_price_threshold == 0.97
+
+
+def test_to_dict_includes_max_favorite_price_threshold():
+    d = ChartSettings().to_dict()
+    assert d["max_favorite_price_threshold"] == 0.97
+
+
+def test_max_favorite_price_threshold_roundtrip(tmp_path):
+    cfg = tmp_path / "cs.json"
+    cfg.write_text(json.dumps(ChartSettings(max_favorite_price_threshold=0.85).to_dict()))
+    loaded = load_chart_settings(cfg)
+    assert loaded.max_favorite_price_threshold == 0.85
+
+
 def test_roundtrip_via_load(tmp_path):
     cfg = tmp_path / "cs.json"
     cfg.write_text(json.dumps(ChartSettings(data_warning_min_pregame_vol=12345).to_dict()))

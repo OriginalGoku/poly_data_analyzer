@@ -123,3 +123,38 @@ Distance from Main Sequence: 0.35
 **Notable:** `pregame_min_cum_vol` is now dual-comparator — interpreted as share count for the open-anchor and as USDC notional for the game-picker gate. Trade-count badge threshold is hardcoded at 50 (per plan Risk Flag). Implementation diverged from plan suggestion: single `get_analytics_view` call with `min_pregame_notional=0` plus in-callback filtering, instead of two separate calls (plan listed this as an acceptable alternative; avoids a second cache pass). Tests 289 -> 297 (8 new, 0 regressions). Architecture gate not run for this plan (explicitly opted out).
 
 ---
+
+## [plan_file: tip-off-bucket-and-max-favorite-price-filters/technical-plan.md] Executed 2026-05-28
+**Mode:** sequential | **Result:** All 7 steps completed
+**PRs:** N/A (sequential mode; commits on main)
+**Salience:** HIGH
+**Modules:** ingame_extremes.py, chart_settings.json, settings.py, scripts/backfill_ingame_extremes.py, analytics.py, pages/main_dashboard_page.py, CLAUDE.md, tests/
+**Notable:** Step 6 was structurally folded into Step 4 (`load_or_compute_ingame_extremes` already covers both backfilled-cache-hit and on-demand-compute paths), so Step 6 was reduced to a sidecar-reuse test. Defensive extreme-column-presence check in `_load_base_records_cache` (added Step 4) required updating an existing partial-record fixture in `tests/test_stream_game_analytics.py`. Tests 297 -> 329 (32 new from `/test-epilogue` + step-level coverage, 0 regressions).
+**Corrections:** none from user.
+**Reversals:** none.
+**Discoveries:** Plan instructed adding `max_favorite_price_threshold` as a new key in `chart_settings.json` but did not flag that `ChartSettings.from_dict` uses strict `**data` kwargs — loading the augmented JSON without a matching dataclass field would have crashed `load_chart_settings` at startup. Caught pre-commit; added the field alongside the JSON change.
+**Lesson:** When a plan adds a key to a config JSON file, always grep the loader for strict-kwargs construction (`**data`, `**kwargs`, `cls(**...)`) and add the matching dataclass/TypedDict field in the same commit. Strict loaders turn "additive" JSON changes into hard boot failures.
+
+**Architecture gate output:**
+```text
+Scanning ....
+[build_project_map] 140 files, 21 unique dirs, 20 cache misses, 0.8ms
+[resolve] 250 resolved, 306 unresolved (of 556 total specs)
+[resolve_imports] project_map 0.9ms, suffix_idx 0.2ms, suffix_resolve 4.2ms, total 5.3ms
+[build_graphs] 140 files | maps 0.1ms, imports 5.4ms, calls+inherit 1.2ms, total 6.7ms | 250 import, 796 call, 0 inherit edges
+sentrux gate — structural regression check
+
+Quality:      6360 -> 6353
+Coupling:     0.02 → 0.03
+Cycles:       0 → 0
+God files:    0 → 0
+
+Distance from Main Sequence: 0.33
+
+✓ No degradation detected
+```
+**Regressions introduced:** none
+**Regressions fixed:** none (quality net-improved 6360 -> 6353)
+**Intentional tradeoffs:** none
+
+---

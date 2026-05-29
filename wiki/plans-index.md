@@ -92,3 +92,14 @@
 - Gate applied as post-cache row mask in `get_analytics_view` (mirrors `start_date`/`end_date` pattern) — no new cache key
 
 ---
+
+## [plan_file: features/tip-off-bucket-and-max-favorite-price-filters/technical-plan.md] 2026-05-28
+**Summary:** Add Tip-off bucket filter (anchor-selectable) and max anchor-side in-game price filter (default 97%) to the main Dash dashboard, backed by a settings-independent per-game sidecar of per-team in-game min/max prices.
+**Key decisions:**
+- Per-game sidecar `cache/<date>/<match_id>_ingame_extremes.json` keyed on input_fingerprint only (settings-independent)
+- Bucket UI restructured into anchor-type + bucket-value dropdowns (no AND-composition)
+- In-game window capped at `gamma_closed_time` to avoid post-settlement noise; sport-agnostic fallback when score events absent
+- Base-records cache schema bumped to v2 + defensive column-presence check on load
+- Threshold filter decoupled from bucket selection; checkbox + numeric input with default from `chart_settings.json`
+
+---
