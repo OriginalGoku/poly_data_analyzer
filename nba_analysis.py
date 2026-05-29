@@ -890,10 +890,20 @@ def _compute_nba_detail_row_from_game(
             tipoff_favorite_price,
         )
     )
+    tipoff_time = _resolve_score_tipoff_time(game["events"])
+    entry_price, n_used = _compute_tipoff_entry_window_price(
+        game["trades_df"],
+        game["manifest"],
+        tipoff_favorite_team,
+        tipoff_time,
+        int(getattr(settings, "tipoff_entry_window_trades", 0)),
+    )
     details.update(
         {
             "final_winner": final_winner,
             "has_outcome": final_winner is not None,
+            "tipoff_favorite_avg_last_n_pretip_price": entry_price,
+            "tipoff_entry_window_n_used": n_used,
         }
     )
     return details
@@ -1080,6 +1090,75 @@ def _compute_in_game_open_favorite_metrics(
     metrics["favorite_switch_count_ingame"] = favorite_switch_count_ingame
     metrics["any_favorite_switch_ingame"] = favorite_switch_count_ingame > 0
     return metrics
+
+
+def _resolve_score_tipoff_time(events: list[dict] | None):
+    """Tip-off time = earliest score event with a wall-clock timestamp.
+
+    Mirrors the boundary used by `_compute_in_game_open_favorite_metrics`.
+    """
+    if not events:
+        return None
+    score_events = [
+        event
+        for event in events
+        if event.get("time_actual_dt") is not None
+        and event.get("away_score") is not None
+        and event.get("home_score") is not None
+    ]
+    if not score_events:
+        return None
+    return min(event["time_actual_dt"] for event in score_events)
+
+
+def _compute_tipoff_entry_window_price(
+    trades_df: pd.DataFrame,
+    manifest: dict,
+    tipoff_favorite_team: str | None,
+    tipoff_time,
+    n_trades: int,
+) -> tuple[float | None, int]:
+    """Size-weighted avg tip-off-favorite-side price of the last N pre-tip trades.
+
+    Returns ``(weighted_price, n_used)`` where ``n_used`` is the actual trade
+    count consumed (< N when fewer pre-tip trades exist). Returns ``(None, 0)``
+    when the window is empty, N <= 0, or the tip-off favorite is undetermined.
+    """
+    if (
+        n_trades is None
+        or n_trades <= 0
+        or tipoff_favorite_team is None
+        or tipoff_time is None
+        or len(manifest.get("token_ids", [])) < 2
+        or len(manifest.get("outcomes", [])) < 2
+    ):
+        return None, 0
+
+    away_token = manifest["token_ids"][0]
+    away_team = manifest["outcomes"][0]
+    home_team = manifest["outcomes"][1]
+    if tipoff_favorite_team not in (away_team, home_team):
+        return None, 0
+
+    pregame = trades_df[trades_df["datetime"] < tipoff_time].sort_values("datetime")
+    if pregame.empty:
+        return None, 0
+
+    # Transform every trade price to away-team perspective, then to the
+    # tip-off favorite's perspective (mirrors the in-game away/home logic).
+    away_price = pregame["price"].astype(float).copy()
+    home_mask = pregame["asset"] != away_token
+    away_price.loc[home_mask] = 1.0 - away_price.loc[home_mask]
+    fav_price = away_price if tipoff_favorite_team == away_team else 1.0 - away_price
+
+    window = pregame.assign(_fav_price=fav_price).tail(int(n_trades))
+    n_used = int(len(window))
+    size = window["size"].astype(float)
+    total_size = float(size.sum())
+    if total_size <= 0:
+        return None, n_used
+    weighted = float((window["_fav_price"] * size).sum() / total_size)
+    return weighted, n_used
 
 
 def _attach_favorite_columns(price_path: pd.DataFrame, away_team: str, home_team: str) -> pd.DataFrame:

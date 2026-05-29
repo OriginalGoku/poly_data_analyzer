@@ -518,3 +518,61 @@ def test_in_game_metrics_tipoff_none_when_team_undetermined():
     )
     assert metrics["tipoff_favorite_in_game_min_price"] is None
     assert metrics["tipoff_favorite_max_adverse_excursion"] is None
+
+
+def _entry_window_fixture():
+    tipoff = pd.Timestamp("2026-04-10T19:00:00Z")
+    trades_df = pd.DataFrame(
+        {
+            "datetime": [
+                tipoff - pd.Timedelta(minutes=30),
+                tipoff - pd.Timedelta(minutes=20),
+                tipoff - pd.Timedelta(minutes=10),
+                tipoff + pd.Timedelta(minutes=5),  # post-tip, must be excluded
+            ],
+            "asset": ["a1", "h1", "a1", "a1"],
+            "price": [0.30, 0.40, 0.50, 0.99],
+            "size": [100, 200, 300, 999],
+        }
+    )
+    manifest = {"token_ids": ["a1", "h1"], "outcomes": ["Away", "Home"]}
+    return trades_df, manifest, tipoff
+
+
+def test_entry_window_size_weighted_last_n_by_side():
+    from nba_analysis import _compute_tipoff_entry_window_price
+
+    trades_df, manifest, tipoff = _entry_window_fixture()
+
+    # Away favorite, last 2 pre-tip away-prices = 0.60, 0.50 (sizes 200, 300)
+    price, n_used = _compute_tipoff_entry_window_price(
+        trades_df, manifest, "Away", tipoff, n_trades=2
+    )
+    assert n_used == 2
+    assert price == pytest.approx((0.60 * 200 + 0.50 * 300) / 500)  # 0.54
+
+    # Home favorite is the complement
+    price_home, _ = _compute_tipoff_entry_window_price(
+        trades_df, manifest, "Home", tipoff, n_trades=2
+    )
+    assert price_home == pytest.approx(0.46)
+
+
+def test_entry_window_truncates_when_fewer_than_n():
+    from nba_analysis import _compute_tipoff_entry_window_price
+
+    trades_df, manifest, tipoff = _entry_window_fixture()
+    price, n_used = _compute_tipoff_entry_window_price(
+        trades_df, manifest, "Away", tipoff, n_trades=10
+    )
+    assert n_used == 3  # only 3 pre-tip trades exist
+    assert price == pytest.approx((0.30 * 100 + 0.60 * 200 + 0.50 * 300) / 600)  # 0.50
+
+
+def test_entry_window_none_when_undetermined_or_zero_n():
+    from nba_analysis import _compute_tipoff_entry_window_price
+
+    trades_df, manifest, tipoff = _entry_window_fixture()
+    assert _compute_tipoff_entry_window_price(trades_df, manifest, None, tipoff, 30) == (None, 0)
+    assert _compute_tipoff_entry_window_price(trades_df, manifest, "Away", tipoff, 0) == (None, 0)
+    assert _compute_tipoff_entry_window_price(trades_df, manifest, "Away", None, 30) == (None, 0)
