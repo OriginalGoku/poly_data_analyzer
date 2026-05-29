@@ -48,13 +48,13 @@ def _row(
 
 def test_bucket_all_returns_all_rows():
     df = _frame([_row("g1"), _row("g2", open_band="Lower Strong")])
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_on=False, threshold_value=None)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="off", threshold_value=None)
     assert set(out["match_id"]) == {"g1", "g2"}
 
 
 def test_open_anchor_band_filter():
     df = _frame([_row("g1"), _row("g2", open_band="Lower Strong")])
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="Upper Strong", threshold_on=False, threshold_value=None)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="Upper Strong", threshold_mode="off", threshold_value=None)
     assert list(out["match_id"]) == ["g1"]
 
 
@@ -63,7 +63,7 @@ def test_tipoff_anchor_drops_unavailable():
         _row("g1"),
         _row("g2", tipoff_available=False),
     ])
-    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="all", threshold_on=False, threshold_value=None)
+    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="all", threshold_mode="off", threshold_value=None)
     assert list(out["match_id"]) == ["g1"]
 
 
@@ -72,7 +72,7 @@ def test_tipoff_anchor_uses_tipoff_band():
         _row("g1", tipoff_band="Lower Strong"),
         _row("g2", tipoff_band="Upper Strong"),
     ])
-    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="Lower Strong", threshold_on=False, threshold_value=None)
+    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="Lower Strong", threshold_mode="off", threshold_value=None)
     assert list(out["match_id"]) == ["g1"]
 
 
@@ -82,19 +82,19 @@ def test_threshold_filters_open_favorite_at_or_above():
         _row("g2", away_max=0.97),    # 0.97 >= 0.97 → drop
         _row("g3", away_max=0.99),    # drop
     ])
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_on=True, threshold_value=0.97)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="below", threshold_value=0.97)
     assert list(out["match_id"]) == ["g1"]
 
 
 def test_threshold_preserves_nan_extremes():
     df = _frame([_row("g1", away_max=None, home_max=None)])
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_on=True, threshold_value=0.97)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="below", threshold_value=0.97)
     assert list(out["match_id"]) == ["g1"]
 
 
 def test_threshold_off_returns_all():
     df = _frame([_row("g1", away_max=0.99)])
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_on=False, threshold_value=0.97)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="off", threshold_value=0.97)
     assert list(out["match_id"]) == ["g1"]
 
 
@@ -104,11 +104,31 @@ def test_threshold_uses_tipoff_favorite_when_anchor_tipoff():
     df = _frame([
         _row("g1", open_fav="A", tipoff_fav="H", away_max=0.99, home_max=0.40),
     ])
-    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="all", threshold_on=True, threshold_value=0.97)
+    out = _apply_bucket_and_threshold(df, anchor="tipoff", bucket="all", threshold_mode="below", threshold_value=0.97)
     assert list(out["match_id"]) == ["g1"]  # home_max 0.40 < 0.97 → keep
 
 
 def test_empty_input_returns_empty():
     df = pd.DataFrame()
-    out = _apply_bucket_and_threshold(df, anchor="open", bucket="Upper Strong", threshold_on=True, threshold_value=0.97)
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="Upper Strong", threshold_mode="below", threshold_value=0.97)
     assert out.empty
+
+
+def test_threshold_mode_above_keeps_reached():
+    df = _frame([
+        _row("g1", away_max=0.95),   # 0.95 < 0.97 → drop
+        _row("g2", away_max=0.97),   # 0.97 >= 0.97 → keep
+        _row("g3", away_max=0.99),   # keep
+    ])
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="above", threshold_value=0.97)
+    assert list(out["match_id"]) == ["g2", "g3"]
+
+
+def test_threshold_mode_above_drops_nan():
+    """NaN extremes mean we can't confirm the threshold was reached → drop."""
+    df = _frame([
+        _row("g1", away_max=None, home_max=None),
+        _row("g2", away_max=0.99),
+    ])
+    out = _apply_bucket_and_threshold(df, anchor="open", bucket="all", threshold_mode="above", threshold_value=0.97)
+    assert list(out["match_id"]) == ["g2"]

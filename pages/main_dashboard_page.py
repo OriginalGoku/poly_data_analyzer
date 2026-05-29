@@ -129,16 +129,20 @@ class MainDashboardPage:
                         ),
                         html.Div(
                             [
-                                html.Label("Max anchor-side price"),
+                                html.Label("Anchor-side price filter"),
                                 html.Div(
                                     style={"display": "flex", "gap": "6px", "alignItems": "center"},
                                     children=[
-                                        dcc.Checklist(
-                                            id="threshold-enable",
-                                            options=[{"label": " Cap reached games", "value": "on"}],
-                                            value=[],
-                                            inputStyle={"marginRight": "4px"},
-                                            style={"color": "#ddd", "fontSize": "12px"},
+                                        dcc.Dropdown(
+                                            id="threshold-mode",
+                                            clearable=False,
+                                            options=[
+                                                {"label": "Off", "value": "off"},
+                                                {"label": "Below threshold", "value": "below"},
+                                                {"label": "At/above threshold", "value": "above"},
+                                            ],
+                                            value="off",
+                                            style={"width": "180px", "color": "#111"},
                                         ),
                                         dcc.Input(
                                             id="threshold-value",
@@ -271,7 +275,7 @@ class MainDashboardPage:
             Input("price-quality-picker", "value"),
             Input("bucket-picker", "value"),
             Input("bucket-anchor-picker", "value"),
-            Input("threshold-enable", "value"),
+            Input("threshold-mode", "value"),
             Input("threshold-value", "value"),
             State("url", "search"),
         )
@@ -282,7 +286,7 @@ class MainDashboardPage:
             price_quality,
             bucket,
             bucket_anchor,
-            threshold_enable,
+            threshold_mode,
             threshold_value,
             search,
         ):
@@ -314,12 +318,11 @@ class MainDashboardPage:
                 if filtered_count > 0
                 else ""
             )
-            threshold_on = bool(threshold_enable) and "on" in (threshold_enable or [])
             analytics = _apply_bucket_and_threshold(
                 analytics,
                 anchor=bucket_anchor or "open",
                 bucket=bucket,
-                threshold_on=threshold_on,
+                threshold_mode=threshold_mode or "off",
                 threshold_value=threshold_value,
             )
             band_col = (
@@ -389,7 +392,7 @@ class MainDashboardPage:
             Input("price-quality-picker", "value"),
             Input("bucket-picker", "value"),
             Input("bucket-anchor-picker", "value"),
-            Input("threshold-enable", "value"),
+            Input("threshold-mode", "value"),
             Input("threshold-value", "value"),
         )
         def update_game(
@@ -400,7 +403,7 @@ class MainDashboardPage:
             price_quality_filter,
             bucket,
             bucket_anchor,
-            threshold_enable,
+            threshold_mode,
             threshold_value,
         ):
             if not selected_game or not start_date or not end_date or not sport:
@@ -432,12 +435,11 @@ class MainDashboardPage:
                 start_date=start_date,
                 end_date=end_date,
             )
-            threshold_on = bool(threshold_enable) and "on" in (threshold_enable or [])
             analytics = _apply_bucket_and_threshold(
                 analytics,
                 anchor=bucket_anchor or "open",
                 bucket=bucket,
-                threshold_on=threshold_on,
+                threshold_mode=threshold_mode or "off",
                 threshold_value=threshold_value,
             )
             game_row = analytics[(analytics["match_id"] == match_id) & (analytics["date"] == game_date)]
@@ -610,13 +612,17 @@ def _apply_bucket_and_threshold(
     analytics,
     anchor: str,
     bucket: str,
-    threshold_on: bool,
+    threshold_mode: str,
     threshold_value: float | None,
 ):
-    """Apply Bucket Anchor + Bucket band filter + max anchor-side price threshold.
+    """Apply Bucket Anchor + Bucket band filter + anchor-side price threshold.
 
-    NaN-extremes rows are preserved by the threshold filter so games without
-    in-game data are not silently dropped.
+    threshold_mode:
+      - "off": no threshold filter
+      - "below": keep games whose anchor-side favorite never reached the threshold
+        in-game (max < threshold). NaN extremes preserved — can't confirm reach.
+      - "above": keep games whose anchor-side favorite reached the threshold
+        in-game (max >= threshold). NaN extremes dropped — can't confirm reach.
     """
     if analytics is None or analytics.empty:
         return analytics
@@ -632,7 +638,7 @@ def _apply_bucket_and_threshold(
     if bucket and bucket != "all":
         analytics = analytics[analytics[band_col] == bucket].copy()
 
-    if threshold_on and threshold_value is not None and not analytics.empty:
+    if threshold_mode in ("below", "above") and threshold_value is not None and not analytics.empty:
         fav_team = analytics[fav_team_col]
         away_max = analytics.get("away_in_game_max_price")
         home_max = analytics.get("home_in_game_max_price")
@@ -642,7 +648,11 @@ def _apply_bucket_and_threshold(
                 index=analytics.index,
                 dtype="float64",
             )
-            keep = fav_max.isna() | (fav_max < float(threshold_value))
+            thresh = float(threshold_value)
+            if threshold_mode == "below":
+                keep = fav_max.isna() | (fav_max < thresh)
+            else:  # "above"
+                keep = fav_max.notna() & (fav_max >= thresh)
             analytics = analytics[keep].copy()
 
     return analytics
