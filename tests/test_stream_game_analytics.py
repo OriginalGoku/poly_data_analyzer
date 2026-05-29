@@ -308,6 +308,32 @@ class TestIngameExtremesProjection:
         sidecar = tmp_path / "cache" / "2026-04-10" / "g1_ingame_extremes.json"
         assert sidecar.exists()
 
+    def test_sidecar_persists_across_runs(self, tmp_path, monkeypatch):
+        """A second stream_game_analytics run reuses the on-disk sidecar."""
+        data = tmp_path / "data"
+        cache_dir = tmp_path / "cache" / "_base_records"
+        _seed_game(data, "2026-04-10", "g1")
+
+        list(stream_game_analytics(
+            str(data), pregame_min_cum_vol=5000, base_records_cache_dir=cache_dir,
+        ))
+        sidecar = tmp_path / "cache" / "2026-04-10" / "g1_ingame_extremes.json"
+        assert sidecar.exists()
+        initial_mtime = sidecar.stat().st_mtime_ns
+
+        # Drop base-records pickle so _compute_base_record runs again, but
+        # leave the sidecar so it must be reused (no rewrite).
+        for pkl in cache_dir.glob("*.pkl"):
+            pkl.unlink()
+        for mf in cache_dir.glob("*.manifest.json"):
+            mf.unlink()
+
+        list(stream_game_analytics(
+            str(data), pregame_min_cum_vol=5000, base_records_cache_dir=cache_dir,
+        ))
+        # Sidecar mtime unchanged: load_or_compute_ingame_extremes hit cache.
+        assert sidecar.stat().st_mtime_ns == initial_mtime
+
     def test_extremes_columns_none_when_no_cache_dir(self, tmp_path):
         data = tmp_path / "data"
         _seed_game(data, "2026-04-10", "g1")
