@@ -504,6 +504,141 @@ class NBAOpenTipoffAnalysisService:
             result["band"] = result["band"].astype(str)
         return result
 
+    _EV_GRID_COLUMNS = (
+        "band",
+        "stop_price",
+        "entry_price_used",
+        "n_games",
+        "win_stopout_rate",
+        "win_stopout_ci_low",
+        "win_stopout_ci_high",
+        "loss_stopout_rate",
+        "loss_stopout_ci_low",
+        "loss_stopout_ci_high",
+        "ev_per_unit_stake",
+        "ev_no_stop_reference",
+        "is_argmax",
+    )
+
+    @staticmethod
+    def _stopout_rate_ci(min_prices: np.ndarray, stop: float):
+        """``P(min_price <= stop)`` plus Wilson CI over the non-null subset."""
+        arr = min_prices[~np.isnan(min_prices)]
+        n = int(len(arr))
+        if n == 0:
+            return 0.0, None, None
+        rate = float(np.mean(arr <= stop))
+        lo, hi = _wilson_interval(rate, n)
+        return rate, lo, hi
+
+    def build_band_stop_loss_ev_grid(
+        self,
+        dataset: pd.DataFrame,
+        settings: ChartSettings,
+        band_col: str = "tipoff_interpretable_band",
+        entry_col: str = "tipoff_favorite_avg_last_n_pretip_price",
+        min_price_col: str = "tipoff_favorite_in_game_min_price",
+        outcome_col: str = "tipoff_favorite_won",
+        stop_grid: tuple[float, ...] | None = None,
+    ) -> pd.DataFrame:
+        """EV-vs-stop-price grid per band for a long-favorite tip-off entry.
+
+        Long-form: one row per ``(band, stop_price)``. ``entry_price_used`` is a
+        single band-level mean entry ``E``; ``ev_no_stop_reference`` is constant
+        within a band; ``is_argmax`` flags the EV-maximizing stop per band.
+
+        NOTE: ``min_price`` comes from a 5-minute resample (see
+        ``PregameFavoritePathAnalyzer.PATH_RESAMPLE_FREQ``); a stop touched
+        between bars may be missed, so EV here is an upper-bound estimate.
+        """
+        cols = list(self._EV_GRID_COLUMNS)
+        required = {band_col, entry_col, min_price_col, outcome_col}
+        if dataset.empty or not required.issubset(dataset.columns):
+            return pd.DataFrame(columns=cols)
+
+        if stop_grid is None:
+            stop_grid = tuple(round(float(x), 4) for x in np.arange(0.0, 0.99, 0.01))
+
+        fee = float(getattr(settings, "stop_loss_fee_bps", 0.0)) / 10000.0
+        slippage = float(getattr(settings, "stop_loss_slippage_bps", 0.0)) / 10000.0
+
+        rows = []
+        for band, group in dataset.groupby(band_col, dropna=True):
+            valid = group[group[outcome_col].notna()]
+            if valid.empty:
+                continue
+            entry_rows = valid[valid[entry_col].notna()]
+            if entry_rows.empty:
+                continue
+            E = float(pd.to_numeric(entry_rows[entry_col], errors="coerce").mean())
+            if np.isnan(E):
+                continue
+
+            outcomes = valid[outcome_col].astype(bool)
+            n_games = int(len(valid))
+            win_rate = float(outcomes.mean())
+            loss_rate = 1.0 - win_rate
+            winners_min = pd.to_numeric(
+                valid.loc[outcomes, min_price_col], errors="coerce"
+            ).to_numpy(dtype=float)
+            losers_min = pd.to_numeric(
+                valid.loc[~outcomes, min_price_col], errors="coerce"
+            ).to_numpy(dtype=float)
+            n_win = int(np.count_nonzero(~np.isnan(winners_min)))
+            n_loss = int(np.count_nonzero(~np.isnan(losers_min)))
+
+            ev_no_stop = win_rate * (1.0 - E) + loss_rate * (-E) - fee
+
+            band_rows = []
+            for stop in stop_grid:
+                stop_fill = stop - slippage
+                if stop <= 0.0:
+                    # No-stop reference: a stop at 0 is never triggered.
+                    wsr, (wlo, whi) = 0.0, _wilson_interval(0.0, n_win)
+                    lsr, (llo, lhi) = 0.0, _wilson_interval(0.0, n_loss)
+                    ev = ev_no_stop
+                else:
+                    wsr, wlo, whi = self._stopout_rate_ci(winners_min, stop)
+                    lsr, llo, lhi = self._stopout_rate_ci(losers_min, stop)
+                    ev = (
+                        win_rate
+                        * ((1.0 - wsr) * (1.0 - E) + wsr * (stop_fill - E))
+                        + loss_rate
+                        * ((1.0 - lsr) * (0.0 - E) + lsr * (stop_fill - E))
+                        - fee
+                    )
+                band_rows.append(
+                    {
+                        "band": band,
+                        "stop_price": float(stop),
+                        "entry_price_used": E,
+                        "n_games": n_games,
+                        "win_stopout_rate": wsr,
+                        "win_stopout_ci_low": wlo,
+                        "win_stopout_ci_high": whi,
+                        "loss_stopout_rate": lsr,
+                        "loss_stopout_ci_low": llo,
+                        "loss_stopout_ci_high": lhi,
+                        "ev_per_unit_stake": ev,
+                        "ev_no_stop_reference": ev_no_stop,
+                        "is_argmax": False,
+                    }
+                )
+
+            if band_rows:
+                best = max(range(len(band_rows)), key=lambda i: band_rows[i]["ev_per_unit_stake"])
+                band_rows[best]["is_argmax"] = True
+                rows.extend(band_rows)
+
+        result = pd.DataFrame(rows, columns=cols)
+        ordering = GROUP_ORDERINGS.get(band_col)
+        if ordering and not result.empty:
+            present = [label for label in ordering if label in set(result["band"])]
+            result["band"] = pd.Categorical(result["band"], categories=present, ordered=True)
+            result = result.sort_values(["band", "stop_price"]).reset_index(drop=True)
+            result["band"] = result["band"].astype(str)
+        return result
+
     def build_transition_outcome_summary(self, dataset: pd.DataFrame) -> pd.DataFrame:
         return self.build_group_summary(dataset, "interpretable_transition")
 

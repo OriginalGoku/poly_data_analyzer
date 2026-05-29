@@ -629,3 +629,99 @@ def test_band_outcome_distribution_skips_null_outcome_and_empty():
     assert len(dist) == 1
     assert dist.iloc[0]["outcome"] == "win"
     assert dist.iloc[0]["n_games"] == 1
+
+
+def _ev_grid_dataset(bands, wons, entries, mins):
+    return pd.DataFrame(
+        {
+            "tipoff_interpretable_band": bands,
+            "tipoff_favorite_won": wons,
+            "tipoff_favorite_avg_last_n_pretip_price": entries,
+            "tipoff_favorite_in_game_min_price": mins,
+        }
+    )
+
+
+def test_ev_grid_all_winners_argmax_is_zero_stop():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Upper Strong"] * 3,
+        wons=[True, True, True],
+        entries=[0.55, 0.55, 0.55],
+        mins=[0.50, 0.60, 0.70],
+    )
+    grid = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    assert list(grid.columns) == list(service._EV_GRID_COLUMNS)
+    argmax = grid[grid["is_argmax"]]
+    assert len(argmax) == 1
+    assert argmax.iloc[0]["stop_price"] == pytest.approx(0.0)
+    # No-stop reference for a 100%-win band = 1 - E
+    assert grid.iloc[0]["ev_no_stop_reference"] == pytest.approx(1.0 - 0.55)
+
+
+def test_ev_grid_frictionless_no_stop_reference_closed_form():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    # 2 winners, 2 losers -> win_rate 0.5, E = 0.50
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 4,
+        wons=[True, True, False, False],
+        entries=[0.50, 0.50, 0.50, 0.50],
+        mins=[0.55, 0.60, 0.30, 0.35],
+    )
+    grid = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    expected = 0.5 * (1.0 - 0.50) + 0.5 * (-0.50)  # = 0.0
+    assert grid["ev_no_stop_reference"].iloc[0] == pytest.approx(expected)
+
+
+def test_ev_grid_stop_helps_all_loser_band():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 3,
+        wons=[False, False, False],
+        entries=[0.50, 0.50, 0.50],
+        mins=[0.30, 0.30, 0.30],
+    )
+    grid = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    assert grid["ev_no_stop_reference"].iloc[0] == pytest.approx(-0.50)
+    argmax_ev = grid.loc[grid["is_argmax"], "ev_per_unit_stake"].iloc[0]
+    # A stop above 0.30 caps the loss, so the best EV beats no-stop (-0.50).
+    assert argmax_ev > -0.50
+
+
+def test_ev_grid_one_argmax_per_band_and_empty_edge():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Upper Strong"] * 2 + ["Lower Strong"] * 2,
+        wons=[True, False, True, False],
+        entries=[0.60, 0.60, 0.45, 0.45],
+        mins=[0.70, 0.20, 0.50, 0.15],
+    )
+    grid = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    per_band = grid.groupby("band")["is_argmax"].sum()
+    assert (per_band == 1).all()
+
+    # Band with no outcome data -> no rows for it.
+    no_outcome = _ev_grid_dataset(
+        bands=["Upper Strong"],
+        wons=[None],
+        entries=[0.60],
+        mins=[0.70],
+    )
+    assert service.build_band_stop_loss_ev_grid(no_outcome, ChartSettings()).empty
+
+
+def test_ev_grid_fee_shifts_ev_down():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 4,
+        wons=[True, True, False, False],
+        entries=[0.50, 0.50, 0.50, 0.50],
+        mins=[0.55, 0.60, 0.30, 0.35],
+    )
+    base = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    fee = service.build_band_stop_loss_ev_grid(
+        dataset, ChartSettings(stop_loss_fee_bps=100.0)  # 1% = 0.01
+    )
+    assert fee["ev_no_stop_reference"].iloc[0] == pytest.approx(
+        base["ev_no_stop_reference"].iloc[0] - 0.01
+    )
