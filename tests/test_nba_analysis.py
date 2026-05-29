@@ -576,3 +576,56 @@ def test_entry_window_none_when_undetermined_or_zero_n():
     assert _compute_tipoff_entry_window_price(trades_df, manifest, None, tipoff, 30) == (None, 0)
     assert _compute_tipoff_entry_window_price(trades_df, manifest, "Away", tipoff, 0) == (None, 0)
     assert _compute_tipoff_entry_window_price(trades_df, manifest, "Away", None, 30) == (None, 0)
+
+
+def test_band_outcome_distribution_percentiles_and_shape():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = pd.DataFrame(
+        {
+            "tipoff_interpretable_band": (
+                ["Upper Strong"] * 6 + ["Lower Strong"] * 6
+            ),
+            "tipoff_favorite_won": (
+                [True, True, True, False, False, False]
+                + [True, True, True, False, False, False]
+            ),
+            "tipoff_favorite_in_game_min_price": [
+                0.78, 0.80, 0.82, 0.40, 0.50, 0.60,   # Upper Strong
+                0.60, 0.63, 0.66, 0.20, 0.30, 0.40,   # Lower Strong
+            ],
+        }
+    )
+    dist = service.build_band_outcome_distribution(dataset)
+
+    assert list(dist.columns) == [
+        "band", "outcome", "n_games", "p05", "p10", "p25", "p50", "p75", "p90", "p95",
+    ]
+    assert len(dist) == 4  # 2 bands x 2 outcomes
+    # Upper Strong ordered before Lower Strong per GROUP_ORDERINGS? Lower Strong
+    # precedes Upper Strong in INTERPRETABLE_BAND_LABELS, so it sorts first.
+    assert dist["band"].tolist() == [
+        "Lower Strong", "Lower Strong", "Upper Strong", "Upper Strong",
+    ]
+    by_cell = {(r["band"], r["outcome"]): r for _, r in dist.iterrows()}
+    assert by_cell[("Upper Strong", "win")]["n_games"] == 3
+    assert by_cell[("Upper Strong", "win")]["p50"] == pytest.approx(0.80)
+    assert by_cell[("Upper Strong", "loss")]["p50"] == pytest.approx(0.50)
+    assert by_cell[("Lower Strong", "win")]["p50"] == pytest.approx(0.63)
+    assert by_cell[("Lower Strong", "loss")]["p50"] == pytest.approx(0.30)
+
+
+def test_band_outcome_distribution_skips_null_outcome_and_empty():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    assert service.build_band_outcome_distribution(pd.DataFrame()).empty
+
+    dataset = pd.DataFrame(
+        {
+            "tipoff_interpretable_band": ["Upper Strong", "Upper Strong"],
+            "tipoff_favorite_won": [True, None],  # one null outcome -> excluded
+            "tipoff_favorite_in_game_min_price": [0.80, 0.10],
+        }
+    )
+    dist = service.build_band_outcome_distribution(dataset)
+    assert len(dist) == 1
+    assert dist.iloc[0]["outcome"] == "win"
+    assert dist.iloc[0]["n_games"] == 1

@@ -9,6 +9,7 @@ from math import sqrt
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -436,6 +437,72 @@ class NBAOpenTipoffAnalysisService:
         if ordered is not None:
             return ordered.reset_index(drop=True)
         return summary.sort_values("games", ascending=False).reset_index(drop=True)
+
+    PERCENTILE_GRID = (5, 10, 25, 50, 75, 90, 95)
+    _DISTRIBUTION_COLUMNS = (
+        "band",
+        "outcome",
+        "n_games",
+        "p05",
+        "p10",
+        "p25",
+        "p50",
+        "p75",
+        "p90",
+        "p95",
+    )
+
+    def build_band_outcome_distribution(
+        self,
+        dataset: pd.DataFrame,
+        band_col: str = "tipoff_interpretable_band",
+        value_col: str = "tipoff_favorite_in_game_min_price",
+    ) -> pd.DataFrame:
+        """Per-(band, outcome) percentile distribution of ``value_col``.
+
+        Long-form: one row per ``(band, win|loss)``. Games with a null
+        ``tipoff_favorite_won`` (no derivable outcome) are excluded. Honors the
+        ``GROUP_ORDERINGS`` band ordering when defined.
+        """
+        cols = list(self._DISTRIBUTION_COLUMNS)
+        pct_keys = ["p05", "p10", "p25", "p50", "p75", "p90", "p95"]
+        if (
+            dataset.empty
+            or band_col not in dataset
+            or value_col not in dataset
+            or "tipoff_favorite_won" not in dataset
+        ):
+            return pd.DataFrame(columns=cols)
+
+        df = dataset[dataset["tipoff_favorite_won"].notna()]
+        if df.empty:
+            return pd.DataFrame(columns=cols)
+
+        rows = []
+        for (band, won), group in df.groupby([band_col, "tipoff_favorite_won"], dropna=True):
+            values = pd.to_numeric(group[value_col], errors="coerce").to_numpy(dtype=float)
+            values = values[~np.isnan(values)]
+            n_games = int(len(values))
+            row = {
+                "band": band,
+                "outcome": "win" if bool(won) else "loss",
+                "n_games": n_games,
+            }
+            if n_games:
+                pcts = np.nanpercentile(values, list(self.PERCENTILE_GRID))
+                row.update({key: float(p) for key, p in zip(pct_keys, pcts)})
+            else:
+                row.update({key: None for key in pct_keys})
+            rows.append(row)
+
+        result = pd.DataFrame(rows, columns=cols)
+        ordering = GROUP_ORDERINGS.get(band_col)
+        if ordering and not result.empty:
+            present = [label for label in ordering if label in set(result["band"])]
+            result["band"] = pd.Categorical(result["band"], categories=present, ordered=True)
+            result = result.sort_values(["band", "outcome"]).reset_index(drop=True)
+            result["band"] = result["band"].astype(str)
+        return result
 
     def build_transition_outcome_summary(self, dataset: pd.DataFrame) -> pd.DataFrame:
         return self.build_group_summary(dataset, "interpretable_transition")
