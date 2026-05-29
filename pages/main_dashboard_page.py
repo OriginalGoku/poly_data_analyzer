@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from urllib.parse import parse_qs
@@ -97,7 +98,22 @@ class MainDashboardPage:
                         ),
                         html.Div(
                             [
-                                html.Label("Open Bucket"),
+                                html.Label("Bucket Anchor"),
+                                dcc.Dropdown(
+                                    id="bucket-anchor-picker",
+                                    clearable=False,
+                                    options=[
+                                        {"label": "Open", "value": "open"},
+                                        {"label": "Tip-off", "value": "tipoff"},
+                                    ],
+                                    value="open",
+                                    style={"width": "140px", "color": "#111"},
+                                ),
+                            ]
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Bucket"),
                                 dcc.Dropdown(
                                     id="bucket-picker",
                                     clearable=False,
@@ -107,7 +123,33 @@ class MainDashboardPage:
                                         for label in ACTIVE_INTERPRETABLE_BAND_LABELS
                                     ],
                                     value="all",
-                                    style={"width": "220px", "color": "#111"},
+                                    style={"width": "200px", "color": "#111"},
+                                ),
+                            ]
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Max anchor-side price"),
+                                html.Div(
+                                    style={"display": "flex", "gap": "6px", "alignItems": "center"},
+                                    children=[
+                                        dcc.Checklist(
+                                            id="threshold-enable",
+                                            options=[{"label": " Cap reached games", "value": "on"}],
+                                            value=[],
+                                            inputStyle={"marginRight": "4px"},
+                                            style={"color": "#ddd", "fontSize": "12px"},
+                                        ),
+                                        dcc.Input(
+                                            id="threshold-value",
+                                            type="number",
+                                            min=0.5,
+                                            max=1.0,
+                                            step=0.01,
+                                            value=settings_dict.get("max_favorite_price_threshold", 0.97),
+                                            style={"width": "80px", "color": "#111"},
+                                        ),
+                                    ],
                                 ),
                             ]
                         ),
@@ -163,6 +205,10 @@ class MainDashboardPage:
                                     f"{settings_dict.get('analysis_min_open_favorite_price', 0.5):.2f}",
                                 ),
                                 info_row("Post-Game Buffer", f"{settings_dict['post_game_buffer_min']} min"),
+                                info_row(
+                                    "Threshold Default",
+                                    f"{settings_dict.get('max_favorite_price_threshold', 0.97):.2f}",
+                                ),
                                 html.Hr(style={"borderColor": "#333", "margin": "8px 0"}),
                                 info_row("Whale Min Vol %", f"{settings_dict['whale_min_volume_pct']}%"),
                                 info_row("Whale Max Count", settings_dict["whale_max_count"]),
@@ -224,9 +270,22 @@ class MainDashboardPage:
             Input("sport-picker", "value"),
             Input("price-quality-picker", "value"),
             Input("bucket-picker", "value"),
+            Input("bucket-anchor-picker", "value"),
+            Input("threshold-enable", "value"),
+            Input("threshold-value", "value"),
             State("url", "search"),
         )
-        def populate_games(start_date, end_date, sport, price_quality, bucket, search):
+        def populate_games(
+            start_date,
+            end_date,
+            sport,
+            price_quality,
+            bucket,
+            bucket_anchor,
+            threshold_enable,
+            threshold_value,
+            search,
+        ):
             if not start_date or not end_date or not sport:
                 return [], None, "", ""
             start_date, end_date = _normalize_date_range(start_date, end_date)
@@ -255,11 +314,22 @@ class MainDashboardPage:
                 if filtered_count > 0
                 else ""
             )
-            if bucket and bucket != "all":
-                analytics = analytics[analytics["open_interpretable_band"] == bucket].copy()
+            threshold_on = bool(threshold_enable) and "on" in (threshold_enable or [])
+            analytics = _apply_bucket_and_threshold(
+                analytics,
+                anchor=bucket_anchor or "open",
+                bucket=bucket,
+                threshold_on=threshold_on,
+                threshold_value=threshold_value,
+            )
+            band_col = (
+                "tipoff_interpretable_band"
+                if (bucket_anchor or "open") == "tipoff"
+                else "open_interpretable_band"
+            )
             options = [
                 {
-                    "label": f"{row['date']} | {row['label']} | {row['open_interpretable_band']}",
+                    "label": f"{row['date']} | {row['label']} | {row[band_col]}",
                     "value": _encode_game_value(row["date"], row["match_id"]),
                 }
                 for _, row in analytics.iterrows()
@@ -318,8 +388,21 @@ class MainDashboardPage:
             Input("sport-picker", "value"),
             Input("price-quality-picker", "value"),
             Input("bucket-picker", "value"),
+            Input("bucket-anchor-picker", "value"),
+            Input("threshold-enable", "value"),
+            Input("threshold-value", "value"),
         )
-        def update_game(selected_game, start_date, end_date, sport, price_quality_filter, bucket):
+        def update_game(
+            selected_game,
+            start_date,
+            end_date,
+            sport,
+            price_quality_filter,
+            bucket,
+            bucket_anchor,
+            threshold_enable,
+            threshold_value,
+        ):
             if not selected_game or not start_date or not end_date or not sport:
                 return (
                     no_update,
@@ -349,8 +432,14 @@ class MainDashboardPage:
                 start_date=start_date,
                 end_date=end_date,
             )
-            if bucket and bucket != "all":
-                analytics = analytics[analytics["open_interpretable_band"] == bucket].copy()
+            threshold_on = bool(threshold_enable) and "on" in (threshold_enable or [])
+            analytics = _apply_bucket_and_threshold(
+                analytics,
+                anchor=bucket_anchor or "open",
+                bucket=bucket,
+                threshold_on=threshold_on,
+                threshold_value=threshold_value,
+            )
             game_row = analytics[(analytics["match_id"] == match_id) & (analytics["date"] == game_date)]
             if game_row.empty:
                 return (
@@ -515,6 +604,48 @@ class MainDashboardPage:
                 analysis_card,
                 whale_card,
             )
+
+
+def _apply_bucket_and_threshold(
+    analytics,
+    anchor: str,
+    bucket: str,
+    threshold_on: bool,
+    threshold_value: float | None,
+):
+    """Apply Bucket Anchor + Bucket band filter + max anchor-side price threshold.
+
+    NaN-extremes rows are preserved by the threshold filter so games without
+    in-game data are not silently dropped.
+    """
+    if analytics is None or analytics.empty:
+        return analytics
+
+    if anchor == "tipoff":
+        analytics = analytics[analytics["tipoff_available"].fillna(False)].copy()
+        band_col = "tipoff_interpretable_band"
+        fav_team_col = "tipoff_favorite_team"
+    else:
+        band_col = "open_interpretable_band"
+        fav_team_col = "open_favorite_team"
+
+    if bucket and bucket != "all":
+        analytics = analytics[analytics[band_col] == bucket].copy()
+
+    if threshold_on and threshold_value is not None and not analytics.empty:
+        fav_team = analytics[fav_team_col]
+        away_max = analytics.get("away_in_game_max_price")
+        home_max = analytics.get("home_in_game_max_price")
+        if away_max is not None and home_max is not None:
+            fav_max = pd.Series(
+                np.where(fav_team == analytics["away_team"], away_max, home_max),
+                index=analytics.index,
+                dtype="float64",
+            )
+            keep = fav_max.isna() | (fav_max < float(threshold_value))
+            analytics = analytics[keep].copy()
+
+    return analytics
 
 
 def _default_date_window(dates: list[str]) -> tuple[str | None, str | None]:
