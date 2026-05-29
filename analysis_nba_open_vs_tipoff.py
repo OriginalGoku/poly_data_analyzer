@@ -122,6 +122,34 @@ def write_summary_file(run_dir: Path, summary, filters: AnalysisFilters, group_b
     (run_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def append_stop_loss_ev_section(run_dir: Path, dataset, ev_grid):
+    """Append the argmax-per-band stop-loss EV table to ``summary.md``."""
+    missing_outcome = int(dataset["tipoff_favorite_won"].isna().sum()) if "tipoff_favorite_won" in dataset else 0
+    lines = ["", "## Stop-Loss EV (per tip-off band)", ""]
+    if ev_grid.empty:
+        lines.append("_No EV grid rows (insufficient outcome/entry data)._")
+    else:
+        argmax = ev_grid[ev_grid["is_argmax"]]
+        lines.append("| Band | Argmax stop | EV | EV no-stop | Win stopout | Loss stopout | N games |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for _, row in argmax.iterrows():
+            lines.append(
+                f"| {row['band']} | {_format_number(row['stop_price'])} | "
+                f"{_format_number(row['ev_per_unit_stake'])} | {_format_number(row['ev_no_stop_reference'])} | "
+                f"{_format_pct(row['win_stopout_rate'])} | {_format_pct(row['loss_stopout_rate'])} | "
+                f"{int(row['n_games'])} |"
+            )
+    lines += [
+        "",
+        f"- Games excluded from EV (null tip-off outcome): `{missing_outcome}`",
+        "- _In-game min is from a 5-minute resample; a stop touched between bars "
+        "may be missed, so EV is an upper-bound estimate._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     args = parse_args()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -177,6 +205,13 @@ def main():
         dataset,
         dropped_open_filter_games=prepared.dropped_open_filter_games,
     ).to_csv(run_dir / "coverage_summary.csv", index=False)
+
+    distribution = service.build_band_outcome_distribution(dataset)
+    distribution.to_csv(run_dir / "tipoff_band_min_price_distribution.csv", index=False)
+
+    ev_grid = service.build_band_stop_loss_ev_grid(dataset, settings)
+    ev_grid.to_csv(run_dir / "tipoff_band_stop_loss_ev.csv", index=False)
+    append_stop_loss_ev_section(run_dir, dataset, ev_grid)
 
     transition = service.build_transition_matrix(dataset, "open_interpretable_band", "tipoff_interpretable_band")
     transition.to_csv(run_dir / "interpretable_transition_matrix.csv")

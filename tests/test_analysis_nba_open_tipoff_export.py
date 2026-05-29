@@ -177,3 +177,30 @@ def test_main_writes_outcome_exports(tmp_path, monkeypatch):
     summary_md = (run_dir / "summary.md").read_text(encoding="utf-8")
     assert "Open favorite win rate" in summary_md
     assert "Tip-off favorite win rate" in summary_md
+    assert "Stop-Loss EV (per tip-off band)" in summary_md
+
+    # New tip-off stop-loss EV outputs
+    dist_path = run_dir / "tipoff_band_min_price_distribution.csv"
+    ev_path = run_dir / "tipoff_band_stop_loss_ev.csv"
+    assert dist_path.exists()
+    assert ev_path.exists()
+
+    dist_header = dist_path.read_text(encoding="utf-8").splitlines()[0]
+    assert dist_header == "band,outcome,n_games,p05,p10,p25,p50,p75,p90,p95"
+
+    ev_header = ev_path.read_text(encoding="utf-8").splitlines()[0]
+    assert ev_header == (
+        "band,stop_price,entry_price_used,n_games,win_stopout_rate,"
+        "win_stopout_ci_low,win_stopout_ci_high,loss_stopout_rate,"
+        "loss_stopout_ci_low,loss_stopout_ci_high,ev_per_unit_stake,"
+        "ev_no_stop_reference,is_argmax"
+    )
+
+    # New dataset columns from Steps 2-3
+    for col in (
+        "tipoff_favorite_in_game_min_price",
+        "tipoff_favorite_max_adverse_excursion",
+        "tipoff_favorite_avg_last_n_pretip_price",
+        "tipoff_entry_window_n_used",
+    ):
+        assert col in dataset_csv
