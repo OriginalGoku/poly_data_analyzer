@@ -48,122 +48,135 @@ class MainDashboardPage:
             children=[
                 html.H2("Poly Data Analyzer", style={"marginBottom": "10px"}),
                 html.Div(
-                    style={"display": "flex", "gap": "20px", "marginBottom": "20px"},
+                    style={"display": "flex", "flexDirection": "column", "gap": "12px", "marginBottom": "20px"},
                     children=[
+                        # Row 1: data scope (sport + date window + price quality)
                         html.Div(
-                            [
-                                html.Label("Sport"),
-                                dcc.Dropdown(
-                                    id="sport-picker",
-                                    clearable=False,
-                                    style={"width": "160px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("Start Date"),
-                                dcc.Dropdown(
-                                    id="start-date-picker",
-                                    clearable=False,
-                                    style={"width": "200px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("End Date"),
-                                dcc.Dropdown(
-                                    id="end-date-picker",
-                                    clearable=False,
-                                    style={"width": "200px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("Price Quality"),
-                                dcc.Dropdown(
-                                    id="price-quality-picker",
-                                    clearable=False,
-                                    options=[
-                                        {"label": "All", "value": "all"},
-                                        {"label": "Exact", "value": "exact"},
-                                        {"label": "Inferred", "value": "inferred"},
-                                    ],
-                                    value="all",
-                                    style={"width": "180px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("Bucket Anchor"),
-                                dcc.Dropdown(
-                                    id="bucket-anchor-picker",
-                                    clearable=False,
-                                    options=[
-                                        {"label": "Open", "value": "open"},
-                                        {"label": "Tip-off", "value": "tipoff"},
-                                    ],
-                                    value="open",
-                                    style={"width": "140px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("Bucket"),
-                                dcc.Dropdown(
-                                    id="bucket-picker",
-                                    clearable=False,
-                                    options=[{"label": "All", "value": "all"}]
-                                    + [
-                                        {"label": label, "value": label}
-                                        for label in ACTIVE_INTERPRETABLE_BAND_LABELS
-                                    ],
-                                    value="all",
-                                    style={"width": "200px", "color": "#111"},
-                                ),
-                            ]
-                        ),
-                        html.Div(
-                            [
-                                html.Label("Anchor-side price filter"),
+                            style={"display": "flex", "gap": "20px", "flexWrap": "wrap"},
+                            children=[
                                 html.Div(
-                                    style={"display": "flex", "gap": "6px", "alignItems": "center"},
-                                    children=[
+                                    [
+                                        html.Label("Sport"),
                                         dcc.Dropdown(
-                                            id="threshold-mode",
+                                            id="sport-picker",
                                             clearable=False,
-                                            options=[
-                                                {"label": "Off", "value": "off"},
-                                                {"label": "Below threshold", "value": "below"},
-                                                {"label": "At/above threshold", "value": "above"},
-                                            ],
-                                            value="off",
+                                            style={"width": "160px", "color": "#111"},
+                                        ),
+                                    ]
+                                ),
+                                html.Div(
+                                    [
+                                        html.Label("Start Date"),
+                                        dcc.Dropdown(
+                                            id="start-date-picker",
+                                            clearable=False,
                                             style={"width": "180px", "color": "#111"},
                                         ),
-                                        dcc.Input(
-                                            id="threshold-value",
-                                            type="number",
-                                            min=0.5,
-                                            max=1.0,
-                                            step=0.01,
-                                            value=settings_dict.get("max_favorite_price_threshold", 0.97),
-                                            style={"width": "80px", "color": "#111"},
-                                        ),
-                                    ],
+                                    ]
                                 ),
-                            ]
+                                html.Div(
+                                    [
+                                        html.Label("End Date"),
+                                        dcc.Dropdown(
+                                            id="end-date-picker",
+                                            clearable=False,
+                                            style={"width": "180px", "color": "#111"},
+                                        ),
+                                    ]
+                                ),
+                                html.Div(
+                                    [
+                                        html.Label("Price Quality"),
+                                        dcc.Dropdown(
+                                            id="price-quality-picker",
+                                            clearable=False,
+                                            options=[
+                                                {"label": "All", "value": "all"},
+                                                {"label": "Exact", "value": "exact"},
+                                                {"label": "Inferred", "value": "inferred"},
+                                            ],
+                                            value="all",
+                                            style={"width": "160px", "color": "#111"},
+                                        ),
+                                    ]
+                                ),
+                            ],
                         ),
+                        # Row 2: regime + threshold filters
+                        html.Div(
+                            style={"display": "flex", "gap": "20px", "flexWrap": "wrap"},
+                            children=[
+                                html.Div(
+                                    [
+                                        html.Label("Bucket Anchor"),
+                                        dcc.Dropdown(
+                                            id="bucket-anchor-picker",
+                                            clearable=False,
+                                            options=[
+                                                {"label": "Open", "value": "open"},
+                                                {"label": "Tip-off", "value": "tipoff"},
+                                            ],
+                                            value="open",
+                                            style={"width": "140px", "color": "#111"},
+                                        ),
+                                    ]
+                                ),
+                                html.Div(
+                                    [
+                                        html.Label("Bucket"),
+                                        dcc.Dropdown(
+                                            id="bucket-picker",
+                                            clearable=False,
+                                            options=[{"label": "All", "value": "all"}]
+                                            + [
+                                                {"label": label, "value": label}
+                                                for label in ACTIVE_INTERPRETABLE_BAND_LABELS
+                                            ],
+                                            value="all",
+                                            style={"width": "180px", "color": "#111"},
+                                        ),
+                                    ]
+                                ),
+                                html.Div(
+                                    [
+                                        html.Label("Anchor-side price filter"),
+                                        html.Div(
+                                            style={"display": "flex", "gap": "6px", "alignItems": "center"},
+                                            children=[
+                                                dcc.Dropdown(
+                                                    id="threshold-mode",
+                                                    clearable=False,
+                                                    options=[
+                                                        {"label": "Off", "value": "off"},
+                                                        {"label": "Below threshold", "value": "below"},
+                                                        {"label": "At/above threshold", "value": "above"},
+                                                    ],
+                                                    value="off",
+                                                    style={"width": "180px", "color": "#111"},
+                                                ),
+                                                dcc.Input(
+                                                    id="threshold-value",
+                                                    type="number",
+                                                    min=0.5,
+                                                    max=1.0,
+                                                    step=0.01,
+                                                    value=settings_dict.get("max_favorite_price_threshold", 0.97),
+                                                    style={"width": "80px", "color": "#111"},
+                                                ),
+                                            ],
+                                        ),
+                                    ]
+                                ),
+                            ],
+                        ),
+                        # Row 3: game picker (wide)
                         html.Div(
                             [
                                 html.Label("Game"),
                                 dcc.Dropdown(
                                     id="game-picker",
                                     clearable=False,
-                                    style={"width": "420px", "color": "#111"},
+                                    style={"width": "100%", "maxWidth": "720px", "color": "#111"},
                                 ),
                                 html.Div(
                                     id="filtered-games-note",
