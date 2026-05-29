@@ -44,6 +44,9 @@ class ChartSettings:
     outlier_backward_threshold: float = 0.75
     outlier_forward_threshold: float = 0.50
     outlier_forward_skip_seconds: int = 10
+    tipoff_entry_window_trades: int = 30
+    stop_loss_fee_bps: float = 0.0
+    stop_loss_slippage_bps: float = 0.0
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChartSettings":
@@ -87,6 +90,9 @@ class ChartSettings:
             "outlier_backward_threshold": self.outlier_backward_threshold,
             "outlier_forward_threshold": self.outlier_forward_threshold,
             "outlier_forward_skip_seconds": self.outlier_forward_skip_seconds,
+            "tipoff_entry_window_trades": self.tipoff_entry_window_trades,
+            "stop_loss_fee_bps": self.stop_loss_fee_bps,
+            "stop_loss_slippage_bps": self.stop_loss_slippage_bps,
         }
 
 

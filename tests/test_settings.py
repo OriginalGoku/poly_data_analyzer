@@ -40,3 +40,27 @@ def test_roundtrip_via_load(tmp_path):
     cfg.write_text(json.dumps(ChartSettings(data_warning_min_pregame_vol=12345).to_dict()))
     loaded = load_chart_settings(cfg)
     assert loaded.data_warning_min_pregame_vol == 12345
+
+
+def test_stop_loss_settings_defaults():
+    s = ChartSettings()
+    assert s.tipoff_entry_window_trades == 30
+    assert s.stop_loss_fee_bps == 0.0
+    assert s.stop_loss_slippage_bps == 0.0
+
+
+def test_stop_loss_settings_roundtrip(tmp_path):
+    cfg = tmp_path / "cs.json"
+    cfg.write_text(
+        json.dumps(
+            ChartSettings(
+                tipoff_entry_window_trades=15,
+                stop_loss_fee_bps=12.5,
+                stop_loss_slippage_bps=3.0,
+            ).to_dict()
+        )
+    )
+    loaded = load_chart_settings(cfg)
+    assert loaded.tipoff_entry_window_trades == 15
+    assert loaded.stop_loss_fee_bps == 12.5
+    assert loaded.stop_loss_slippage_bps == 3.0
