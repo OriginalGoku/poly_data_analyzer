@@ -51,9 +51,25 @@ Single-page Dash application that loads Polymarket trade data from disk and rend
 - Persistent per-game cache for the `/nba-open-tipoff-analysis` detail rows
 - Path: `cache/<date>/<match_id>_nba_tipoff.json`
 - Payload: `{schema_version, settings_hash, input_fingerprint, row}`
-- `settings_hash` hashes the ChartSettings fields that influence the row (`pregame_min_cum_vol`, `vol_spike_std`, `vol_spike_lookback`, `post_game_buffer_min`, open-favorite team/price)
+- Payload `schema_version` is 2 (bumped from 1 when the size-weighted pre-tip entry-price window was added)
+- `settings_hash` hashes the ChartSettings fields that influence the row (`pregame_min_cum_vol`, `vol_spike_std`, `vol_spike_lookback`, `post_game_buffer_min`, `tipoff_entry_window_trades`, open-favorite team/price)
 - `input_fingerprint` hashes `(mtime_ns, size)` for the trades/manifest/events files; catches re-collected raw data. Unique to this cache among per-game caches because it backs the user-visible perf path.
 - `load_or_compute_nba_tipoff_detail(...)` accepts either an eager `game` dict or a lazy `game_provider` callable; cache hits skip the game load entirely.
+
+### `nba_analysis.py` -- NBA Open-vs-Tip-off Path Analysis
+
+- `PregameFavoritePathAnalyzer` builds the per-game NBA tip-off analysis dataset and the cross-game aggregators consumed by the offline analysis CLI
+- Per-game tip-off-favorite in-game path metrics (8 keys: min/max price, MAE/MFE, etc.) plus a size-weighted pre-tip entry-price window (`tipoff_favorite_avg_last_n_pretip_price`) over the last `tipoff_entry_window_trades` (default 30) pre-tip fills
+- Two cross-game aggregators (long-form output, both honoring `GROUP_ORDERINGS` band ordering):
+  - `build_band_outcome_distribution(...)` -- per-`(band, win|loss)` percentile distribution (`p05`..`p95`) of the tip-off favorite's in-game min price; games with no derivable outcome are dropped
+  - `build_band_stop_loss_ev_grid(...)` -- per-`(band, stop_price)` EV grid for a long-favorite tip-off entry. Computes stop-out rate + Wilson 95% CI for the win and loss subsets, EV per unit stake (net of `stop_loss_fee_bps` + `stop_loss_slippage_bps`), an `ev_no_stop_reference` baseline, and an `is_argmax` flag on the EV-maximizing stop per band
+- `PATH_RESAMPLE_FREQ = "5min"`: in-game min price is taken from a 5-minute resample, so a stop touched between bars can be missed — the EV grid is an **upper-bound** estimate
+
+### `analysis_nba_open_vs_tipoff.py` -- Offline Analysis CLI
+
+- Standalone (non-Dash) `argparse` script that loads `ChartSettings`, builds the NBA path dataset, and writes a timestamped `run_dir/` with `analysis.log`, per-group CSVs, and a `summary.md`
+- Emits two stop-loss CSVs from the `nba_analysis.py` aggregators -- `tipoff_band_min_price_distribution.csv` and `tipoff_band_stop_loss_ev.csv` -- plus a "Stop-Loss EV (per tip-off band)" section appended to `summary.md`
+- `scripts/archive_baseline_pre_tipoff_stoploss.sh` archives a baseline run for before/after comparison
 
 ### `charts.py` -- Chart Building
 

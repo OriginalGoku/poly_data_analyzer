@@ -725,3 +725,134 @@ def test_ev_grid_fee_shifts_ev_down():
     assert fee["ev_no_stop_reference"].iloc[0] == pytest.approx(
         base["ev_no_stop_reference"].iloc[0] - 0.01
     )
+
+
+def test_ev_grid_slippage_worsens_stopped_fill():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    # All losers whose min price dips to 0.30: every positive stop is touched,
+    # so slippage degrades the fill at the active stop rows.
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 3,
+        wons=[False, False, False],
+        entries=[0.50, 0.50, 0.50],
+        mins=[0.30, 0.30, 0.30],
+    )
+    base = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    slip = service.build_band_stop_loss_ev_grid(
+        dataset, ChartSettings(stop_loss_slippage_bps=200.0)  # 2% = 0.02
+    )
+
+    # Pick a stop strictly above the loser min (0.30) so the stop is triggered
+    # for every game; the only EV difference is the slippage on the fill.
+    base_row = base[base["stop_price"].round(4) == 0.50].iloc[0]
+    slip_row = slip[slip["stop_price"].round(4) == 0.50].iloc[0]
+    assert slip_row["loss_stopout_rate"] == pytest.approx(1.0)
+    # loss_rate=1, stopout_rate=1 -> EV = (stop - slippage) - E; slippage 0.02.
+    assert slip_row["ev_per_unit_stake"] == pytest.approx(
+        base_row["ev_per_unit_stake"] - 0.02
+    )
+
+
+def test_ev_grid_no_stop_reference_row_ignores_slippage():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 3,
+        wons=[False, False, False],
+        entries=[0.50, 0.50, 0.50],
+        mins=[0.30, 0.30, 0.30],
+    )
+    grid = service.build_band_stop_loss_ev_grid(
+        dataset, ChartSettings(stop_loss_slippage_bps=200.0)
+    )
+    zero_stop = grid[grid["stop_price"].round(4) == 0.0].iloc[0]
+    # stop==0 is the never-triggered reference: equals ev_no_stop, unaffected
+    # by slippage, with both stopout rates pinned to 0.
+    assert zero_stop["ev_per_unit_stake"] == pytest.approx(
+        zero_stop["ev_no_stop_reference"]
+    )
+    assert zero_stop["win_stopout_rate"] == pytest.approx(0.0)
+    assert zero_stop["loss_stopout_rate"] == pytest.approx(0.0)
+
+
+def test_resolve_score_tipoff_time_picks_earliest_score_event():
+    from nba_analysis import _resolve_score_tipoff_time
+
+    t0 = pd.Timestamp("2026-04-10T19:00:00Z")
+    events = [
+        {"time_actual_dt": t0 + pd.Timedelta(minutes=20), "away_score": 30, "home_score": 28},
+        {"time_actual_dt": t0, "away_score": 0, "home_score": 0},
+        # No score fields -> not a score event, ignored even though earlier.
+        {"time_actual_dt": t0 - pd.Timedelta(minutes=5)},
+    ]
+    assert _resolve_score_tipoff_time(events) == t0
+
+
+def test_resolve_score_tipoff_time_none_when_no_score_events():
+    from nba_analysis import _resolve_score_tipoff_time
+
+    assert _resolve_score_tipoff_time(None) is None
+    assert _resolve_score_tipoff_time([]) is None
+    # Timestamped but missing score fields -> no usable tip-off.
+    assert _resolve_score_tipoff_time(
+        [{"time_actual_dt": pd.Timestamp("2026-04-10T19:00:00Z")}]
+    ) is None
+
+
+def test_entry_window_none_when_no_pretip_trades():
+    from nba_analysis import _compute_tipoff_entry_window_price
+
+    _, manifest, tipoff = _entry_window_fixture()
+    # All trades at/after tip-off -> empty pre-tip window.
+    post_only = pd.DataFrame(
+        {
+            "datetime": [tipoff, tipoff + pd.Timedelta(minutes=1)],
+            "asset": ["a1", "h1"],
+            "price": [0.50, 0.50],
+            "size": [100, 100],
+        }
+    )
+    assert _compute_tipoff_entry_window_price(
+        post_only, manifest, "Away", tipoff, n_trades=5
+    ) == (None, 0)
+
+
+def test_entry_window_none_when_zero_total_size():
+    from nba_analysis import _compute_tipoff_entry_window_price
+
+    tipoff = pd.Timestamp("2026-04-10T19:00:00Z")
+    zero_size = pd.DataFrame(
+        {
+            "datetime": [tipoff - pd.Timedelta(minutes=10), tipoff - pd.Timedelta(minutes=5)],
+            "asset": ["a1", "a1"],
+            "price": [0.40, 0.50],
+            "size": [0, 0],
+        }
+    )
+    manifest = {"token_ids": ["a1", "h1"], "outcomes": ["Away", "Home"]}
+    price, n_used = _compute_tipoff_entry_window_price(
+        zero_size, manifest, "Away", tipoff, n_trades=5
+    )
+    # Window is non-empty (n_used reflects consumed rows) but unweightable.
+    assert price is None
+    assert n_used == 2
+
+
+def test_compute_detail_row_threads_tipoff_entry_window_keys():
+    from nba_analysis import _compute_nba_detail_row_from_game
+
+    trades_df, events, manifest = _ingame_metrics_fixture()
+    game = {"trades_df": trades_df, "events": events, "manifest": manifest}
+    details = _compute_nba_detail_row_from_game(
+        game,
+        ChartSettings(tipoff_entry_window_trades=5, post_game_buffer_min=10),
+        open_favorite_team="Away",
+        open_favorite_price=0.45,
+        tipoff_favorite_team="Home",
+        tipoff_favorite_price=0.55,
+    )
+    # Tip-off in-game path keys present from the threaded tip-off favorite.
+    assert details["tipoff_favorite_in_game_min_price"] is not None
+    # Entry-window keys wired through from the new helper.
+    assert "tipoff_favorite_avg_last_n_pretip_price" in details
+    assert "tipoff_entry_window_n_used" in details
+    assert details["tipoff_entry_window_n_used"] >= 0

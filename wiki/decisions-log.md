@@ -158,3 +158,33 @@ Distance from Main Sequence: 0.33
 **Intentional tradeoffs:** none
 
 ---
+
+## [plan_file: NBA_Tipoff_Band_Stop_Loss_EV_Plan] Executed 2026-05-29
+**Mode:** sequential | **Result:** All 8 steps completed
+**PRs:** N/A (local commits on main)
+**Salience:** HIGH
+**Modules:** nba_analysis.py, nba_tipoff_cache.py, settings.py, chart_settings.json, analysis_nba_open_vs_tipoff.py, scripts/archive_baseline_pre_tipoff_stoploss.sh, CLAUDE.md, tests/test_nba_analysis.py, tests/test_nba_tipoff_cache.py, tests/test_settings.py, tests/test_analysis_nba_open_tipoff_export.py
+**Notable:** Test count 333 -> 350, no regressions. 8 steps serialized (4 of 8 touch nba_analysis.py); only 1 wave had 2 steps so sequential chosen over parallel.
+**Corrections:** none
+**Reversals:** none
+**Discoveries:** The plan's Codebase Context (lines 17-18, 33) asserted that `PregameFavoritePathAnalyzer.compute_metrics` emits `tipoff_favorite_team` / `tipoff_favorite_price` in its `details` dict. WRONG — compute_metrics does not emit those keys. They originate in the BASE RECORD built by `analytics.py` (`_favorite_snapshot`, ~line 577) and only appear after `merged = {**base_record, **details}`. Fix threaded the two values from base_record into `_compute_nba_detail_row_from_game` as new params: passed directly at the direct call site, and bound via `functools.partial` at the cached call site (since `load_or_compute_nba_tipoff_detail` calls compute_fn with a fixed 4-arg signature).
+**Lesson:** Tip-off / open favorite identity in this repo lives in the base-record layer (`analytics.py`), NOT in the pregame path analyzer's `compute_metrics`. Verify data provenance against source, not against the plan's stated provenance — a plan's Codebase Context can misattribute where a field is produced.
+**Architecture gate output:**
+```text
+sentrux gate — structural regression check
+
+Quality:      6360 -> 6355
+Coupling:     0.02 → 0.03
+Cycles:       0 → 0
+God files:    0 → 0
+
+Distance from Main Sequence: 0.33
+
+✗ DEGRADED
+  ✗ Complex functions increased: 14 → 15
+```
+**Regressions introduced:** complex functions 14 -> 15 (one new complex function); coupling 0.02 -> 0.03
+**Regressions fixed:** none
+**Intentional tradeoffs:** accepted +1 complex function — additive per-band EV/percentile aggregation logic in nba_analysis.py; advisory only, no cycles or boundary violations introduced
+
+---
