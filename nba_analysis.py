@@ -547,6 +547,12 @@ class NBAOpenTipoffAnalysisService:
         single band-level mean entry ``E``; ``ev_no_stop_reference`` is constant
         within a band; ``is_argmax`` flags the EV-maximizing stop per band.
 
+        Only stops *below* the band entry ``E`` are evaluated (plus the
+        ``stop_price = 0.0`` no-stop reference). A stop at or above entry would
+        trigger on essentially every game under the ``min_price <= stop`` model
+        (price starts at ~E), modelling an instant exit near entry and
+        producing a spurious argmax — so those stops are excluded.
+
         NOTE: ``min_price`` comes from a 5-minute resample (see
         ``PregameFavoritePathAnalyzer.PATH_RESAMPLE_FREQ``); a stop touched
         between bars may be missed, so EV here is an upper-bound estimate.
@@ -589,8 +595,11 @@ class NBAOpenTipoffAnalysisService:
 
             ev_no_stop = win_rate * (1.0 - E) + loss_rate * (-E) - fee
 
+            # Restrict to stops below entry; always keep the 0.0 no-stop row.
+            band_grid = [stop for stop in stop_grid if stop <= 0.0 or stop < E]
+
             band_rows = []
-            for stop in stop_grid:
+            for stop in band_grid:
                 stop_fill = stop - slippage
                 if stop <= 0.0:
                     # No-stop reference: a stop at 0 is never triggered.

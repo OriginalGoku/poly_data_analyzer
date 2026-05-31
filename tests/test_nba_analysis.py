@@ -727,6 +727,21 @@ def test_ev_grid_fee_shifts_ev_down():
     )
 
 
+def test_ev_grid_excludes_stops_at_or_above_entry():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _ev_grid_dataset(
+        bands=["Lower Strong"] * 4,
+        wons=[True, True, False, False],
+        entries=[0.50, 0.50, 0.50, 0.50],
+        mins=[0.55, 0.60, 0.30, 0.35],
+    )
+    grid = service.build_band_stop_loss_ev_grid(dataset, ChartSettings())
+    E = grid["entry_price_used"].iloc[0]
+    # No stop at or above entry survives, and argmax is no longer pinned to ~0.98.
+    assert (grid["stop_price"] < E).all()
+    assert grid.loc[grid["is_argmax"], "stop_price"].iloc[0] < E
+
+
 def test_ev_grid_slippage_worsens_stopped_fill():
     service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
     # All losers whose min price dips to 0.30: every positive stop is touched,
@@ -742,10 +757,10 @@ def test_ev_grid_slippage_worsens_stopped_fill():
         dataset, ChartSettings(stop_loss_slippage_bps=200.0)  # 2% = 0.02
     )
 
-    # Pick a stop strictly above the loser min (0.30) so the stop is triggered
-    # for every game; the only EV difference is the slippage on the fill.
-    base_row = base[base["stop_price"].round(4) == 0.50].iloc[0]
-    slip_row = slip[slip["stop_price"].round(4) == 0.50].iloc[0]
+    # Pick a stop above the loser min (0.30) but below entry (0.50) so the stop
+    # is triggered for every game; the only EV difference is slippage on the fill.
+    base_row = base[base["stop_price"].round(4) == 0.40].iloc[0]
+    slip_row = slip[slip["stop_price"].round(4) == 0.40].iloc[0]
     assert slip_row["loss_stopout_rate"] == pytest.approx(1.0)
     # loss_rate=1, stopout_rate=1 -> EV = (stop - slippage) - E; slippage 0.02.
     assert slip_row["ev_per_unit_stake"] == pytest.approx(

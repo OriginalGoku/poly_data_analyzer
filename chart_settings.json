@@ -33,6 +33,6 @@
   "outlier_forward_threshold": 0.50,
   "outlier_forward_skip_seconds": 10,
   "tipoff_entry_window_trades": 30,
-  "stop_loss_fee_bps": 0.0,
-  "stop_loss_slippage_bps": 0.0
+  "stop_loss_fee_bps": 100.0,
+  "stop_loss_slippage_bps": 100.0
 }
