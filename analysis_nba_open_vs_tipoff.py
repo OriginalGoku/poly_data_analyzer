@@ -204,6 +204,43 @@ def append_oos_section(run_dir: Path, oos):
         f.write("\n".join(lines) + "\n")
 
 
+def append_robustness_section(run_dir: Path, walk_forward, bootstrap):
+    """Append walk-forward + bootstrap-CI robustness tables to ``summary.md``."""
+    lines = ["", "## Stop-Loss Robustness (walk-forward + bootstrap)", ""]
+    if walk_forward.empty:
+        lines.append("_Insufficient data for walk-forward folds._")
+    else:
+        lines.append("### Walk-forward (expanding folds)")
+        lines.append("| Band | Folds | Mean test EV | Std | Folds +EV | Folds beat no-stop | Mean stop |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for _, r in walk_forward.iterrows():
+            lines.append(
+                f"| {r['band']} | {int(r['n_folds'])} | {_format_number(r['mean_test_ev'])} | "
+                f"{_format_number(r['std_test_ev'])} | {int(r['folds_positive'])}/{int(r['n_folds'])} | "
+                f"{int(r['folds_beat_no_stop'])}/{int(r['n_folds'])} | {_format_number(r['mean_train_stop'])} |"
+            )
+    lines.append("")
+    if not bootstrap.empty:
+        lines.append("### Bootstrap 95% CI on EV at full-sample argmax stop")
+        lines.append("| Band | Stop | EV | 95% CI | P(EV>0) | t-stat | Mean ROI % | EV no-stop | N |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for _, r in bootstrap.iterrows():
+            lines.append(
+                f"| {r['band']} | {_format_number(r['argmax_stop'])} | {_format_number(r['ev_per_unit_stake'])} | "
+                f"[{_format_number(r['ev_ci_low'])}, {_format_number(r['ev_ci_high'])}] | "
+                f"{_format_pct(r['prob_ev_positive'])} | {r['t_stat']:.2f} | "
+                f"{_format_number(r['mean_roi_pct'])}% | {_format_number(r['ev_no_stop'])} | {int(r['n_games'])} |"
+            )
+    lines += [
+        "",
+        "- _Walk-forward re-selects the stop on each train slice (overfit-honest). "
+        "Bootstrap CI excluding 0 + P(EV>0) near 1 = a statistically real edge._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def append_bracket_ev_section(run_dir: Path, bracket):
     """Append the argmax-per-band TP+SL bracket table to ``summary.md``."""
     lines = ["", "## Bracket EV (per tip-off band, TP + SL, first-passage)", ""]
@@ -299,6 +336,14 @@ def main():
     oos = service.build_stop_loss_oos_validation(dataset, settings)
     oos.to_csv(run_dir / "tipoff_stop_loss_oos_validation.csv", index=False)
     append_oos_section(run_dir, oos)
+
+    from nba_tipoff_robustness import bootstrap_stop_loss_ci, walk_forward_stop_loss
+
+    walk_forward = walk_forward_stop_loss(dataset, settings)
+    walk_forward.to_csv(run_dir / "tipoff_stop_loss_walk_forward.csv", index=False)
+    bootstrap = bootstrap_stop_loss_ci(dataset, settings)
+    bootstrap.to_csv(run_dir / "tipoff_stop_loss_bootstrap_ci.csv", index=False)
+    append_robustness_section(run_dir, walk_forward, bootstrap)
 
     tp_grid = service.build_band_take_profit_ev_grid(dataset, settings)
     tp_grid.to_csv(run_dir / "tipoff_band_take_profit_ev.csv", index=False)
