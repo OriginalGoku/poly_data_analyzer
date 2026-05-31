@@ -67,9 +67,9 @@ def test_underdog_take_profit_salvages_losing_spike():
     # lose), but game A's underdog spikes to 0.70 mid-game before collapsing.
     paths = [
         # fav path [0.80,0.30,0.95] -> underdog [0.20,0.70,0.05]: spikes then dies
-        ("Lower Strong", True, 0.80, np.array([0.80, 0.30, 0.95])),
+        ("Lower Strong", "2024-01-01", True, 0.80, np.array([0.80, 0.30, 0.95])),
         # fav path [0.80,0.95] -> underdog [0.20,0.05]: never spikes
-        ("Lower Strong", True, 0.80, np.array([0.80, 0.95])),
+        ("Lower Strong", "2024-01-02", True, 0.80, np.array([0.80, 0.95])),
     ]
     grid = _grid_from_paths(paths, side="underdog", fee=0.0, slippage=0.0, stop_step=0.02, target_step=0.02)
     assert not grid.empty
@@ -84,8 +84,8 @@ def test_underdog_take_profit_salvages_losing_spike():
 
 def test_favorite_and_underdog_grids_differ():
     paths = [
-        ("Lower Strong", True, 0.80, np.array([0.80, 0.95])),
-        ("Lower Strong", False, 0.80, np.array([0.80, 0.30])),
+        ("Lower Strong", "2024-01-01", True, 0.80, np.array([0.80, 0.95])),
+        ("Lower Strong", "2024-01-02", False, 0.80, np.array([0.80, 0.30])),
     ]
     fav = _grid_from_paths(paths, "favorite", 0.0, 0.0, 0.02, 0.02)
     dog = _grid_from_paths(paths, "underdog", 0.0, 0.0, 0.02, 0.02)

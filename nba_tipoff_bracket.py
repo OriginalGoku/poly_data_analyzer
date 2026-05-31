@@ -142,8 +142,8 @@ def _collect_paths(
     outcome_col: str,
     fav_team_col: str,
     base_records_cache_dir,
-) -> list[tuple[str, bool, float, np.ndarray]]:
-    """Stream games once -> list of (band, favorite_won, favorite_entry, fav_price_path).
+) -> list[tuple[str, str, bool, float, np.ndarray]]:
+    """Stream games once -> list of (band, date, favorite_won, favorite_entry, fav_price_path).
 
     The favorite-side path is reused for both sides (underdog path = 1 - path).
     """
@@ -180,7 +180,7 @@ def _collect_paths(
         prices = _favorite_ingame_prices(
             game["trades_df"], game["events"], game["manifest"], settings, fav_team
         )
-        paths.append((band, won, entry, prices))
+        paths.append((band, key[0], won, entry, prices))
     return paths
 
 
@@ -206,7 +206,7 @@ def _grid_from_paths(
 
     # Pass 1: band-level mean entry on the traded side.
     band_entries: dict[str, list[float]] = {}
-    for band, _won, entry, _prices in paths:
+    for band, _date, _won, entry, _prices in paths:
         band_entries.setdefault(band, []).append(_side_entry(entry))
     band_E, band_stops, band_targets = {}, {}, {}
     acc_pnl, acc_tp, acc_sl, acc_n, band_win = {}, {}, {}, {}, {}
@@ -228,7 +228,7 @@ def _grid_from_paths(
         return pd.DataFrame(columns=cols)
 
     # Pass 2: accumulate first-passage PnL across the grid.
-    for band, fav_won, entry, fav_prices in paths:
+    for band, _date, fav_won, entry, fav_prices in paths:
         if band not in band_E:
             continue
         E = band_E[band]
