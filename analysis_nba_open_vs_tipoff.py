@@ -281,9 +281,16 @@ def append_winprob_section(run_dir: Path, win_table, mispricing, n_train, n_test
         f.write("\n".join(lines) + "\n")
 
 
-def append_bracket_ev_section(run_dir: Path, bracket):
+def append_bracket_ev_section(run_dir: Path, bracket, side: str = "favorite"):
     """Append the argmax-per-band TP+SL bracket table to ``summary.md``."""
-    lines = ["", "## Bracket EV (per tip-off band, TP + SL, first-passage)", ""]
+    label = "underdog" if side == "underdog" else "favorite"
+    lines = ["", f"## Bracket EV — {label} side (per tip-off band, TP + SL, first-passage)", ""]
+    if side == "underdog":
+        lines.append(
+            "_Underdog price = 1 - favorite price; entry = 1 - favorite entry. Take-profit "
+            "exits on an in-game spike without holding to settlement._"
+        )
+        lines.append("")
     if bracket.empty:
         lines.append("_No bracket grid rows (insufficient outcome/entry/path data)._")
     else:
@@ -390,12 +397,14 @@ def main():
     append_take_profit_ev_section(run_dir, tp_grid)
 
     if args.path_analysis:
-        from nba_tipoff_bracket import build_band_bracket_ev_grid
+        from nba_tipoff_bracket import build_band_bracket_ev_grids
 
-        logger.info("Building TP x SL bracket grid (full-resolution first-passage)")
-        bracket = build_band_bracket_ev_grid(args.data_dir, settings, dataset)
-        bracket.to_csv(run_dir / "tipoff_band_bracket_ev.csv", index=False)
-        append_bracket_ev_section(run_dir, bracket)
+        logger.info("Building favorite + underdog TP x SL bracket grids (first-passage)")
+        grids = build_band_bracket_ev_grids(args.data_dir, settings, dataset, sides=("favorite", "underdog"))
+        grids["favorite"].to_csv(run_dir / "tipoff_band_bracket_ev.csv", index=False)
+        grids["underdog"].to_csv(run_dir / "tipoff_band_underdog_bracket_ev.csv", index=False)
+        append_bracket_ev_section(run_dir, grids["favorite"], side="favorite")
+        append_bracket_ev_section(run_dir, grids["underdog"], side="underdog")
 
         from nba_tipoff_winprob import build_winprob_analysis
 

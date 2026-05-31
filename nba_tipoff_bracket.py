@@ -133,32 +133,20 @@ def _band_grids(entry: float, stop_step: float, target_step: float):
     return stop_grid, target_grid
 
 
-def build_band_bracket_ev_grid(
-    data_dir: str,
+def _collect_paths(
+    data_dir,
     settings,
     dataset: pd.DataFrame,
-    band_col: str = "tipoff_interpretable_band",
-    entry_col: str = "tipoff_favorite_avg_last_n_pretip_price",
-    outcome_col: str = "tipoff_favorite_won",
-    fav_team_col: str = "tipoff_favorite_team",
-    stop_step: float = 0.02,
-    target_step: float = 0.02,
-    base_records_cache_dir: str | Path | None = None,
-) -> pd.DataFrame:
-    """Per-band TP×SL bracket EV grid via full-resolution first-passage.
+    band_col: str,
+    entry_col: str,
+    outcome_col: str,
+    fav_team_col: str,
+    base_records_cache_dir,
+) -> list[tuple[str, bool, float, np.ndarray]]:
+    """Stream games once -> list of (band, favorite_won, favorite_entry, fav_price_path).
 
-    Streams each game once; for every band, evaluates the whole (stop, target)
-    grid in memory. ``ev_no_bracket_reference`` is the pure hold-to-settlement EV
-    for the band; ``is_argmax`` flags the EV-maximizing bracket per band.
+    The favorite-side path is reused for both sides (underdog path = 1 - path).
     """
-    cols = list(BRACKET_GRID_COLUMNS)
-    required = {band_col, entry_col, outcome_col, fav_team_col, "date", "match_id", "sport"}
-    if dataset.empty or not required.issubset(dataset.columns):
-        return pd.DataFrame(columns=cols)
-
-    fee = float(getattr(settings, "stop_loss_fee_bps", 0.0)) / 10000.0
-    slippage = float(getattr(settings, "stop_loss_slippage_bps", 0.0)) / 10000.0
-
     valid = dataset[
         (dataset["sport"] == "nba")
         & dataset[outcome_col].notna()
@@ -167,20 +155,63 @@ def build_band_bracket_ev_grid(
         & dataset[fav_team_col].notna()
     ]
     if valid.empty:
+        return []
+    lookup = {
+        (r["date"], r["match_id"]): (
+            r[band_col],
+            bool(r[outcome_col]),
+            float(r[entry_col]),
+            r[fav_team_col],
+        )
+        for _, r in valid.iterrows()
+    }
+
+    paths = []
+    for base_record, get_game in stream_game_analytics(
+        data_dir=data_dir,
+        pregame_min_cum_vol=float(getattr(settings, "pregame_min_cum_vol", 0)),
+        base_records_cache_dir=str(base_records_cache_dir) if base_records_cache_dir else None,
+    ):
+        key = (base_record.get("date"), base_record.get("match_id"))
+        if key not in lookup:
+            continue
+        band, won, entry, fav_team = lookup[key]
+        game = get_game()
+        prices = _favorite_ingame_prices(
+            game["trades_df"], game["events"], game["manifest"], settings, fav_team
+        )
+        paths.append((band, won, entry, prices))
+    return paths
+
+
+def _grid_from_paths(
+    paths: list[tuple[str, bool, float, np.ndarray]],
+    side: str,
+    fee: float,
+    slippage: float,
+    stop_step: float,
+    target_step: float,
+) -> pd.DataFrame:
+    """Aggregate the per-band TP×SL grid for one side from cached favorite paths.
+
+    ``side='underdog'`` flips price (1-p), entry (1-E) and outcome (not won); the
+    first-passage logic is otherwise identical.
+    """
+    cols = list(BRACKET_GRID_COLUMNS)
+    if not paths:
         return pd.DataFrame(columns=cols)
 
-    # Per-band fixed entry E and grids + accumulators.
-    band_E: dict[str, float] = {}
-    band_stops: dict[str, list[float]] = {}
-    band_targets: dict[str, list[float]] = {}
-    acc_pnl: dict[str, np.ndarray] = {}
-    acc_tp: dict[str, np.ndarray] = {}
-    acc_sl: dict[str, np.ndarray] = {}
-    acc_n: dict[str, int] = {}
-    band_win: dict[str, list[bool]] = {}
+    def _side_entry(entry: float) -> float:
+        return entry if side == "favorite" else 1.0 - entry
 
-    for band, grp in valid.groupby(band_col):
-        E = float(pd.to_numeric(grp[entry_col], errors="coerce").mean())
+    # Pass 1: band-level mean entry on the traded side.
+    band_entries: dict[str, list[float]] = {}
+    for band, _won, entry, _prices in paths:
+        band_entries.setdefault(band, []).append(_side_entry(entry))
+    band_E, band_stops, band_targets = {}, {}, {}
+    acc_pnl, acc_tp, acc_sl, acc_n, band_win = {}, {}, {}, {}, {}
+    for band, entries in band_entries.items():
+        E = float(np.mean(entries))
         if np.isnan(E) or E <= 0.0 or E >= 1.0:
             continue
         stops, targets = _band_grids(E, stop_step, target_step)
@@ -196,36 +227,18 @@ def build_band_bracket_ev_grid(
     if not band_E:
         return pd.DataFrame(columns=cols)
 
-    # Lookup keyed by (date, match_id) -> per-game band/outcome/team.
-    lookup = {
-        (r["date"], r["match_id"]): (r[band_col], bool(r[outcome_col]), r[fav_team_col])
-        for _, r in valid.iterrows()
-        if r[band_col] in band_E
-    }
-
-    for base_record, get_game in stream_game_analytics(
-        data_dir=data_dir,
-        pregame_min_cum_vol=float(getattr(settings, "pregame_min_cum_vol", 0)),
-        base_records_cache_dir=str(base_records_cache_dir) if base_records_cache_dir else None,
-    ):
-        key = (base_record.get("date"), base_record.get("match_id"))
-        if key not in lookup:
+    # Pass 2: accumulate first-passage PnL across the grid.
+    for band, fav_won, entry, fav_prices in paths:
+        if band not in band_E:
             continue
-        band, won, fav_team = lookup[key]
         E = band_E[band]
         stops = band_stops[band]
         targets = band_targets[band]
+        won = fav_won if side == "favorite" else (not fav_won)
+        prices = fav_prices if side == "favorite" else (1.0 - fav_prices)
 
-        game = get_game()
-        prices = _favorite_ingame_prices(
-            game["trades_df"], game["events"], game["manifest"], settings, fav_team
-        )
-
-        # Vectorize first-passage across the whole band grid for this game.
         if prices.size == 0:
-            # No in-game path: every cell settles.
-            settle = (1.0 if won else 0.0) - E - fee
-            acc_pnl[band] += settle
+            acc_pnl[band] += (1.0 if won else 0.0) - E - fee
             acc_n[band] += 1
             band_win[band].append(won)
             continue
@@ -233,20 +246,17 @@ def build_band_bracket_ev_grid(
         cummax = np.maximum.accumulate(prices)
         cummin = np.minimum.accumulate(prices)
         n = prices.size
-        i_tp = np.searchsorted(cummax, np.asarray(targets), side="left")  # per target
-        i_sl = np.searchsorted(-cummin, -np.asarray(stops), side="left")  # per stop
-
-        tp_hit = i_tp < n  # (T,)
-        sl_hit = i_sl < n  # (S,)
-        # Broadcast to (S, T): TP wins if hit and (no SL hit or TP index <= SL index).
+        i_tp = np.searchsorted(cummax, np.asarray(targets), side="left")
+        i_sl = np.searchsorted(-cummin, -np.asarray(stops), side="left")
+        tp_hit = i_tp < n
+        sl_hit = i_sl < n
         tp_first = tp_hit[None, :] & (~sl_hit[:, None] | (i_tp[None, :] <= i_sl[:, None]))
         sl_first = sl_hit[:, None] & ~tp_first
         settle_mask = ~tp_first & ~sl_first
 
-        tp_pnl = np.asarray(targets)[None, :] - E - fee  # (1, T)
-        sl_pnl = (np.asarray(stops)[:, None] - slippage) - E - fee  # (S, 1)
+        tp_pnl = np.asarray(targets)[None, :] - E - fee
+        sl_pnl = (np.asarray(stops)[:, None] - slippage) - E - fee
         settle_pnl = (1.0 if won else 0.0) - E - fee
-
         pnl = np.where(tp_first, tp_pnl, 0.0)
         pnl = np.where(sl_first, sl_pnl, pnl)
         pnl = np.where(settle_mask, settle_pnl, pnl)
@@ -263,15 +273,13 @@ def build_band_bracket_ev_grid(
         if n_games == 0:
             continue
         E = band_E[band]
-        stops = band_stops[band]
-        targets = band_targets[band]
+        stops, targets = band_stops[band], band_targets[band]
         ev = acc_pnl[band] / n_games
         tp_rate = acc_tp[band] / n_games
         sl_rate = acc_sl[band] / n_games
         settle_rate = 1.0 - tp_rate - sl_rate
         win_rate = float(np.mean(band_win[band]))
         ev_no_bracket = win_rate * (1.0 - E) + (1.0 - win_rate) * (-E) - fee
-
         best = np.unravel_index(int(np.argmax(ev)), ev.shape)
         for si, stop in enumerate(stops):
             for ti, target in enumerate(targets):
@@ -298,3 +306,65 @@ def build_band_bracket_ev_grid(
         result = result.sort_values(["band", "stop_price", "target_price"]).reset_index(drop=True)
         result["band"] = result["band"].astype(str)
     return result
+
+
+def build_band_bracket_ev_grids(
+    data_dir: str,
+    settings,
+    dataset: pd.DataFrame,
+    sides: tuple[str, ...] = ("favorite", "underdog"),
+    band_col: str = "tipoff_interpretable_band",
+    entry_col: str = "tipoff_favorite_avg_last_n_pretip_price",
+    outcome_col: str = "tipoff_favorite_won",
+    fav_team_col: str = "tipoff_favorite_team",
+    stop_step: float = 0.02,
+    target_step: float = 0.02,
+    base_records_cache_dir: str | Path | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Per-band TP×SL bracket grids for multiple sides from a single game stream.
+
+    Underdog side reuses the favorite price path (underdog price = 1 - favorite),
+    flipping entry and outcome. ``ev_no_bracket_reference`` is the pure
+    hold-to-settlement EV for the band+side; ``is_argmax`` flags the best bracket.
+    """
+    required = {band_col, entry_col, outcome_col, fav_team_col, "date", "match_id", "sport"}
+    if dataset.empty or not required.issubset(dataset.columns):
+        return {s: pd.DataFrame(columns=list(BRACKET_GRID_COLUMNS)) for s in sides}
+
+    fee = float(getattr(settings, "stop_loss_fee_bps", 0.0)) / 10000.0
+    slippage = float(getattr(settings, "stop_loss_slippage_bps", 0.0)) / 10000.0
+    paths = _collect_paths(
+        data_dir, settings, dataset, band_col, entry_col, outcome_col, fav_team_col, base_records_cache_dir
+    )
+    return {
+        s: _grid_from_paths(paths, s, fee, slippage, stop_step, target_step) for s in sides
+    }
+
+
+def build_band_bracket_ev_grid(
+    data_dir: str,
+    settings,
+    dataset: pd.DataFrame,
+    band_col: str = "tipoff_interpretable_band",
+    entry_col: str = "tipoff_favorite_avg_last_n_pretip_price",
+    outcome_col: str = "tipoff_favorite_won",
+    fav_team_col: str = "tipoff_favorite_team",
+    stop_step: float = 0.02,
+    target_step: float = 0.02,
+    side: str = "favorite",
+    base_records_cache_dir: str | Path | None = None,
+) -> pd.DataFrame:
+    """Single-side per-band TP×SL bracket EV grid (favorite or underdog)."""
+    return build_band_bracket_ev_grids(
+        data_dir,
+        settings,
+        dataset,
+        sides=(side,),
+        band_col=band_col,
+        entry_col=entry_col,
+        outcome_col=outcome_col,
+        fav_team_col=fav_team_col,
+        stop_step=stop_step,
+        target_step=target_step,
+        base_records_cache_dir=base_records_cache_dir,
+    )[side]

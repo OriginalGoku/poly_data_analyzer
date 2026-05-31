@@ -215,7 +215,9 @@ def test_main_writes_outcome_exports(tmp_path, monkeypatch):
         "band,stop_price,target_price,entry_price_used,n_games,tp_exit_rate,"
         "sl_exit_rate,settle_rate,ev_per_unit_stake,ev_no_bracket_reference,is_argmax"
     )
-    assert "Bracket EV (per tip-off band, TP + SL, first-passage)" in summary_md
+    assert "Bracket EV — favorite side" in summary_md
+    assert (run_dir / "tipoff_band_underdog_bracket_ev.csv").exists()
+    assert "Bracket EV — underdog side" in summary_md
 
     # New dataset columns from Steps 2-3
     for col in (
