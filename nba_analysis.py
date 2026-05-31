@@ -673,6 +673,90 @@ class NBAOpenTipoffAnalysisService:
             result["band"] = result["band"].astype(str)
         return result
 
+    _OOS_COLUMNS = (
+        "band",
+        "n_train",
+        "n_test",
+        "train_argmax_stop",
+        "train_ev",
+        "test_ev_at_train_stop",
+        "test_no_stop_ev",
+        "test_best_ev",
+        "overfit_gap",
+        "test_beats_no_stop",
+    )
+
+    def build_stop_loss_oos_validation(
+        self,
+        dataset: pd.DataFrame,
+        settings: ChartSettings,
+        train_frac: float = 0.7,
+        band_col: str = "tipoff_interpretable_band",
+    ) -> pd.DataFrame:
+        """Chronological train/test check on the stop-loss argmax (overfitting guard).
+
+        Picks each band's EV-maximizing stop on the earliest ``train_frac`` of
+        games, then evaluates that *fixed* stop on the held-out later games. A
+        real edge survives out-of-sample; ``overfit_gap = train_ev -
+        test_ev_at_train_stop`` quantifies the winner's-curse shrinkage.
+
+        Note: uses the scalar SL grid (5-min resample), so absolute EVs are an
+        upper bound — but the train-vs-test comparison is apples-to-apples.
+        """
+        cols = list(self._OOS_COLUMNS)
+        if dataset.empty or "date" not in dataset.columns:
+            return pd.DataFrame(columns=cols)
+
+        ordered = dataset.sort_values("date")
+        cut = int(len(ordered) * train_frac)
+        if cut <= 0 or cut >= len(ordered):
+            return pd.DataFrame(columns=cols)
+        cutoff_date = ordered.iloc[cut]["date"]
+        train = dataset[dataset["date"] < cutoff_date]
+        test = dataset[dataset["date"] >= cutoff_date]
+        if train.empty or test.empty:
+            return pd.DataFrame(columns=cols)
+
+        train_grid = self.build_band_stop_loss_ev_grid(train, settings, band_col=band_col)
+        test_grid = self.build_band_stop_loss_ev_grid(test, settings, band_col=band_col)
+        if train_grid.empty or test_grid.empty:
+            return pd.DataFrame(columns=cols)
+
+        rows = []
+        for band in train_grid["band"].unique():
+            tg = train_grid[train_grid["band"] == band]
+            amax = tg[tg["is_argmax"]]
+            te = test_grid[test_grid["band"] == band]
+            if amax.empty or te.empty:
+                continue
+            amax = amax.iloc[0]
+            chosen_stop = float(amax["stop_price"])
+            trow = te.iloc[(te["stop_price"] - chosen_stop).abs().argmin()]
+            test_ev = float(trow["ev_per_unit_stake"])
+            test_no_stop = float(trow["ev_no_stop_reference"])
+            rows.append(
+                {
+                    "band": band,
+                    "n_train": int(amax["n_games"]),
+                    "n_test": int(trow["n_games"]),
+                    "train_argmax_stop": chosen_stop,
+                    "train_ev": float(amax["ev_per_unit_stake"]),
+                    "test_ev_at_train_stop": test_ev,
+                    "test_no_stop_ev": test_no_stop,
+                    "test_best_ev": float(te["ev_per_unit_stake"].max()),
+                    "overfit_gap": float(amax["ev_per_unit_stake"]) - test_ev,
+                    "test_beats_no_stop": bool(test_ev > test_no_stop),
+                }
+            )
+
+        result = pd.DataFrame(rows, columns=cols)
+        present = [b for b in INTERPRETABLE_BAND_LABELS if b in set(result["band"])] if not result.empty else []
+        if present:
+            result["band"] = pd.Categorical(result["band"], categories=present, ordered=True)
+            result = result.sort_values("band").reset_index(drop=True)
+            result["band"] = result["band"].astype(str)
+        return result
+
     def build_band_take_profit_ev_grid(
         self,
         dataset: pd.DataFrame,

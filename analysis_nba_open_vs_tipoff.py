@@ -176,6 +176,34 @@ def append_take_profit_ev_section(run_dir: Path, tp_grid):
         f.write("\n".join(lines) + "\n")
 
 
+def append_oos_section(run_dir: Path, oos):
+    """Append the stop-loss out-of-sample (train/test) validation to ``summary.md``."""
+    lines = ["", "## Stop-Loss Out-of-Sample Validation (chronological 70/30)", ""]
+    if oos.empty:
+        lines.append("_Insufficient data for a train/test split._")
+    else:
+        lines.append(
+            "| Band | Train stop | Train EV | Test EV @ stop | Test no-stop | Overfit gap | Beats no-stop? | N train/test |"
+        )
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for _, row in oos.iterrows():
+            lines.append(
+                f"| {row['band']} | {_format_number(row['train_argmax_stop'])} | "
+                f"{_format_number(row['train_ev'])} | {_format_number(row['test_ev_at_train_stop'])} | "
+                f"{_format_number(row['test_no_stop_ev'])} | {_format_number(row['overfit_gap'])} | "
+                f"{'YES' if row['test_beats_no_stop'] else 'no'} | "
+                f"{int(row['n_train'])}/{int(row['n_test'])} |"
+            )
+    lines += [
+        "",
+        "- _Stop chosen on the earliest 70% of games, evaluated on the later 30%. "
+        "A real edge keeps `Test EV @ stop` > `Test no-stop`; a large overfit gap = winner's curse._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def append_bracket_ev_section(run_dir: Path, bracket):
     """Append the argmax-per-band TP+SL bracket table to ``summary.md``."""
     lines = ["", "## Bracket EV (per tip-off band, TP + SL, first-passage)", ""]
@@ -267,6 +295,10 @@ def main():
     ev_grid = service.build_band_stop_loss_ev_grid(dataset, settings)
     ev_grid.to_csv(run_dir / "tipoff_band_stop_loss_ev.csv", index=False)
     append_stop_loss_ev_section(run_dir, dataset, ev_grid)
+
+    oos = service.build_stop_loss_oos_validation(dataset, settings)
+    oos.to_csv(run_dir / "tipoff_stop_loss_oos_validation.csv", index=False)
+    append_oos_section(run_dir, oos)
 
     tp_grid = service.build_band_take_profit_ev_grid(dataset, settings)
     tp_grid.to_csv(run_dir / "tipoff_band_take_profit_ev.csv", index=False)

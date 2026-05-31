@@ -789,6 +789,34 @@ def test_ev_grid_no_stop_reference_row_ignores_slippage():
     assert zero_stop["loss_stopout_rate"] == pytest.approx(0.0)
 
 
+def test_stop_loss_oos_validation_splits_and_scores():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    # 10 games across 10 dates, one band; losers dip to 0.30, winners hold ~0.90.
+    n = 10
+    dataset = pd.DataFrame(
+        {
+            "date": [f"2024-01-{d:02d}" for d in range(1, n + 1)],
+            "match_id": [f"m{d}" for d in range(n)],
+            "tipoff_interpretable_band": ["Lower Strong"] * n,
+            "tipoff_favorite_won": [True, False] * (n // 2),
+            "tipoff_favorite_avg_last_n_pretip_price": [0.80] * n,
+            "tipoff_favorite_in_game_min_price": [0.85, 0.30] * (n // 2),
+        }
+    )
+    oos = service.build_stop_loss_oos_validation(dataset, ChartSettings(), train_frac=0.7)
+    assert list(oos.columns) == list(service._OOS_COLUMNS)
+    assert len(oos) == 1
+    row = oos.iloc[0]
+    assert row["n_train"] == 7 and row["n_test"] == 3
+    assert "overfit_gap" in oos.columns
+    assert isinstance(bool(row["test_beats_no_stop"]), bool)
+
+
+def test_stop_loss_oos_validation_empty_without_dates():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    assert service.build_stop_loss_oos_validation(pd.DataFrame(), ChartSettings()).empty
+
+
 def _tp_grid_dataset(bands, wons, entries, maxs):
     return pd.DataFrame(
         {
