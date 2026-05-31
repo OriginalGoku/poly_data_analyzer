@@ -207,6 +207,15 @@ def test_main_writes_outcome_exports(tmp_path, monkeypatch):
     )
     assert "Take-Profit EV (per tip-off band, no stop)" in summary_md
 
+    bracket_path = run_dir / "tipoff_band_bracket_ev.csv"
+    assert bracket_path.exists()
+    bracket_header = bracket_path.read_text(encoding="utf-8").splitlines()[0]
+    assert bracket_header == (
+        "band,stop_price,target_price,entry_price_used,n_games,tp_exit_rate,"
+        "sl_exit_rate,settle_rate,ev_per_unit_stake,ev_no_bracket_reference,is_argmax"
+    )
+    assert "Bracket EV (per tip-off band, TP + SL, first-passage)" in summary_md
+
     # New dataset columns from Steps 2-3
     for col in (
         "tipoff_favorite_in_game_min_price",

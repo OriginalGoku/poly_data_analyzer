@@ -176,6 +176,35 @@ def append_take_profit_ev_section(run_dir: Path, tp_grid):
         f.write("\n".join(lines) + "\n")
 
 
+def append_bracket_ev_section(run_dir: Path, bracket):
+    """Append the argmax-per-band TP+SL bracket table to ``summary.md``."""
+    lines = ["", "## Bracket EV (per tip-off band, TP + SL, first-passage)", ""]
+    if bracket.empty:
+        lines.append("_No bracket grid rows (insufficient outcome/entry/path data)._")
+    else:
+        argmax = bracket[bracket["is_argmax"]]
+        lines.append(
+            "| Band | Stop | Target | EV | EV no-bracket | TP exit | SL exit | Settle | N games |"
+        )
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for _, row in argmax.iterrows():
+            lines.append(
+                f"| {row['band']} | {_format_number(row['stop_price'])} | "
+                f"{_format_number(row['target_price'])} | {_format_number(row['ev_per_unit_stake'])} | "
+                f"{_format_number(row['ev_no_bracket_reference'])} | "
+                f"{_format_pct(row['tp_exit_rate'])} | {_format_pct(row['sl_exit_rate'])} | "
+                f"{_format_pct(row['settle_rate'])} | {int(row['n_games'])} |"
+            )
+    lines += [
+        "",
+        "- _Bracket resolved by full-resolution first-passage on the favorite-side "
+        "trade path (TP before SL matters); TP is a limit sell, SL a market order._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     args = parse_args()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -242,6 +271,13 @@ def main():
     tp_grid = service.build_band_take_profit_ev_grid(dataset, settings)
     tp_grid.to_csv(run_dir / "tipoff_band_take_profit_ev.csv", index=False)
     append_take_profit_ev_section(run_dir, tp_grid)
+
+    from nba_tipoff_bracket import build_band_bracket_ev_grid
+
+    logger.info("Building TP x SL bracket grid (full-resolution first-passage)")
+    bracket = build_band_bracket_ev_grid(args.data_dir, settings, dataset)
+    bracket.to_csv(run_dir / "tipoff_band_bracket_ev.csv", index=False)
+    append_bracket_ev_section(run_dir, bracket)
 
     transition = service.build_transition_matrix(dataset, "open_interpretable_band", "tipoff_interpretable_band")
     transition.to_csv(run_dir / "interpretable_transition_matrix.csv")
