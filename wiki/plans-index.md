@@ -103,3 +103,12 @@
 - Threshold filter decoupled from bucket selection; checkbox + numeric input with default from `chart_settings.json`
 
 ---
+## [plan_file: NBA_Tipoff_Band_Stop_Loss_EV_Plan/] 2026-05-29
+**Summary:** Compute EV-maximizing stop-loss price per NBA tip-off interpretable band using conditional in-game min-price distributions split by tip-off-favorite outcome.
+**Key decisions:**
+- Add tip-off-favorite in-game path metrics (parity with existing open-favorite columns) — fixes wrong-team drawdown attribution on open→tipoff switches
+- Add `tipoff_favorite_avg_last_n_pretip_price` (size-weighted, N=30 via new `tipoff_entry_window_trades` setting)
+- Bump `NBA_TIPOFF_CACHE_SCHEMA_VERSION` 1→2; extend `compute_settings_hash` with N so cache invalidates on entry-window changes
+- New aggregators: per-band-per-outcome percentile distribution + EV-vs-stop grid with Wilson CIs and constant fee/slippage haircut; CSVs only (no UI page in scope)
+
+---
