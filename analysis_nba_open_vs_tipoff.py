@@ -150,6 +150,32 @@ def append_stop_loss_ev_section(run_dir: Path, dataset, ev_grid):
         f.write("\n".join(lines) + "\n")
 
 
+def append_take_profit_ev_section(run_dir: Path, tp_grid):
+    """Append the argmax-per-band take-profit EV table to ``summary.md``."""
+    lines = ["", "## Take-Profit EV (per tip-off band, no stop)", ""]
+    if tp_grid.empty:
+        lines.append("_No TP grid rows (insufficient outcome/entry data)._")
+    else:
+        argmax = tp_grid[tp_grid["is_argmax"]]
+        lines.append("| Band | Argmax target | EV | EV no-TP | Win TP hit | Loss TP hit | N games |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for _, row in argmax.iterrows():
+            lines.append(
+                f"| {row['band']} | {_format_number(row['target_price'])} | "
+                f"{_format_number(row['ev_per_unit_stake'])} | {_format_number(row['ev_no_tp_reference'])} | "
+                f"{_format_pct(row['win_tp_rate'])} | {_format_pct(row['loss_tp_rate'])} | "
+                f"{int(row['n_games'])} |"
+            )
+    lines += [
+        "",
+        "- _Take-profit modelled as a limit sell (fills at target, no slippage); "
+        "single-barrier only — see the backtest engine for TP+SL brackets._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     args = parse_args()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -212,6 +238,10 @@ def main():
     ev_grid = service.build_band_stop_loss_ev_grid(dataset, settings)
     ev_grid.to_csv(run_dir / "tipoff_band_stop_loss_ev.csv", index=False)
     append_stop_loss_ev_section(run_dir, dataset, ev_grid)
+
+    tp_grid = service.build_band_take_profit_ev_grid(dataset, settings)
+    tp_grid.to_csv(run_dir / "tipoff_band_take_profit_ev.csv", index=False)
+    append_take_profit_ev_section(run_dir, tp_grid)
 
     transition = service.build_transition_matrix(dataset, "open_interpretable_band", "tipoff_interpretable_band")
     transition.to_csv(run_dir / "interpretable_transition_matrix.csv")

@@ -196,6 +196,17 @@ def test_main_writes_outcome_exports(tmp_path, monkeypatch):
         "ev_no_stop_reference,is_argmax"
     )
 
+    tp_path = run_dir / "tipoff_band_take_profit_ev.csv"
+    assert tp_path.exists()
+    tp_header = tp_path.read_text(encoding="utf-8").splitlines()[0]
+    assert tp_header == (
+        "band,target_price,entry_price_used,n_games,win_tp_rate,"
+        "win_tp_ci_low,win_tp_ci_high,loss_tp_rate,"
+        "loss_tp_ci_low,loss_tp_ci_high,ev_per_unit_stake,"
+        "ev_no_tp_reference,is_argmax"
+    )
+    assert "Take-Profit EV (per tip-off band, no stop)" in summary_md
+
     # New dataset columns from Steps 2-3
     for col in (
         "tipoff_favorite_in_game_min_price",

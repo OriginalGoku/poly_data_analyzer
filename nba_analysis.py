@@ -520,16 +520,41 @@ class NBAOpenTipoffAnalysisService:
         "is_argmax",
     )
 
+    _TP_GRID_COLUMNS = (
+        "band",
+        "target_price",
+        "entry_price_used",
+        "n_games",
+        "win_tp_rate",
+        "win_tp_ci_low",
+        "win_tp_ci_high",
+        "loss_tp_rate",
+        "loss_tp_ci_low",
+        "loss_tp_ci_high",
+        "ev_per_unit_stake",
+        "ev_no_tp_reference",
+        "is_argmax",
+    )
+
     @staticmethod
-    def _stopout_rate_ci(min_prices: np.ndarray, stop: float):
-        """``P(min_price <= stop)`` plus Wilson CI over the non-null subset."""
-        arr = min_prices[~np.isnan(min_prices)]
+    def _barrier_hit_rate_ci(values: np.ndarray, level: float, above: bool):
+        """Fraction of ``values`` crossing ``level`` plus Wilson CI.
+
+        ``above=False`` → ``P(value <= level)`` (stop-loss touch);
+        ``above=True``  → ``P(value >= level)`` (take-profit touch).
+        """
+        arr = values[~np.isnan(values)]
         n = int(len(arr))
         if n == 0:
             return 0.0, None, None
-        rate = float(np.mean(arr <= stop))
+        rate = float(np.mean(arr >= level)) if above else float(np.mean(arr <= level))
         lo, hi = _wilson_interval(rate, n)
         return rate, lo, hi
+
+    @staticmethod
+    def _stopout_rate_ci(min_prices: np.ndarray, stop: float):
+        """``P(min_price <= stop)`` plus Wilson CI over the non-null subset."""
+        return NBAOpenTipoffAnalysisService._barrier_hit_rate_ci(min_prices, stop, above=False)
 
     def build_band_stop_loss_ev_grid(
         self,
@@ -645,6 +670,124 @@ class NBAOpenTipoffAnalysisService:
             present = [label for label in ordering if label in set(result["band"])]
             result["band"] = pd.Categorical(result["band"], categories=present, ordered=True)
             result = result.sort_values(["band", "stop_price"]).reset_index(drop=True)
+            result["band"] = result["band"].astype(str)
+        return result
+
+    def build_band_take_profit_ev_grid(
+        self,
+        dataset: pd.DataFrame,
+        settings: ChartSettings,
+        band_col: str = "tipoff_interpretable_band",
+        entry_col: str = "tipoff_favorite_avg_last_n_pretip_price",
+        max_price_col: str = "tipoff_favorite_in_game_max_price",
+        outcome_col: str = "tipoff_favorite_won",
+        target_grid: tuple[float, ...] | None = None,
+    ) -> pd.DataFrame:
+        """Take-profit-only EV grid per band (no stop): sell if price hits T.
+
+        Long-form: one row per ``(band, target_price)`` for targets *above*
+        entry ``E`` (plus a ``target_price = 1.0`` hold-to-settlement reference).
+        ``is_argmax`` flags the EV-maximizing target per band.
+
+        A take-profit is modelled as a LIMIT sell: it fills at the target with
+        no adverse slippage (unlike the market-order stop). The per-trade fee
+        still applies.
+
+        SINGLE-BARRIER ONLY: this uses the global in-game max, so it correctly
+        answers "did price ever reach T?" without path ordering. Combining a
+        target with a stop (a bracket) is order-dependent — "did T hit *before*
+        the stop?" — and must be evaluated by the trade-replay backtest engine,
+        not from these scalar extremes.
+
+        NOTE: ``max_price`` comes from a 5-minute resample (see
+        ``PregameFavoritePathAnalyzer.PATH_RESAMPLE_FREQ``); a target touched
+        between bars may be missed, so EV here is an estimate.
+        """
+        cols = list(self._TP_GRID_COLUMNS)
+        required = {band_col, entry_col, max_price_col, outcome_col}
+        if dataset.empty or not required.issubset(dataset.columns):
+            return pd.DataFrame(columns=cols)
+
+        if target_grid is None:
+            target_grid = tuple(round(float(x), 4) for x in np.arange(0.01, 1.01, 0.01))
+
+        fee = float(getattr(settings, "stop_loss_fee_bps", 0.0)) / 10000.0
+
+        rows = []
+        for band, group in dataset.groupby(band_col, dropna=True):
+            valid = group[group[outcome_col].notna()]
+            if valid.empty:
+                continue
+            entry_rows = valid[valid[entry_col].notna()]
+            if entry_rows.empty:
+                continue
+            E = float(pd.to_numeric(entry_rows[entry_col], errors="coerce").mean())
+            if np.isnan(E):
+                continue
+
+            outcomes = valid[outcome_col].astype(bool)
+            n_games = int(len(valid))
+            win_rate = float(outcomes.mean())
+            loss_rate = 1.0 - win_rate
+            winners_max = pd.to_numeric(
+                valid.loc[outcomes, max_price_col], errors="coerce"
+            ).to_numpy(dtype=float)
+            losers_max = pd.to_numeric(
+                valid.loc[~outcomes, max_price_col], errors="coerce"
+            ).to_numpy(dtype=float)
+
+            ev_no_tp = win_rate * (1.0 - E) + loss_rate * (-E) - fee
+
+            # Targets strictly above entry, plus the 1.0 hold-to-settlement row.
+            band_grid = [t for t in target_grid if t > E or t >= 1.0]
+
+            band_rows = []
+            for target in band_grid:
+                if target >= 1.0:
+                    # Never triggered -> identical to holding to settlement.
+                    wtr, (wlo, whi) = 0.0, _wilson_interval(0.0, len(winners_max))
+                    ltr, (llo, lhi) = 0.0, _wilson_interval(0.0, len(losers_max))
+                    ev = ev_no_tp
+                else:
+                    wtr, wlo, whi = self._barrier_hit_rate_ci(winners_max, target, above=True)
+                    ltr, llo, lhi = self._barrier_hit_rate_ci(losers_max, target, above=True)
+                    # Limit sell fills at the target (no slippage); settle 1/0 otherwise.
+                    ev = (
+                        win_rate
+                        * (wtr * (target - E) + (1.0 - wtr) * (1.0 - E))
+                        + loss_rate
+                        * (ltr * (target - E) + (1.0 - ltr) * (0.0 - E))
+                        - fee
+                    )
+                band_rows.append(
+                    {
+                        "band": band,
+                        "target_price": float(target),
+                        "entry_price_used": E,
+                        "n_games": n_games,
+                        "win_tp_rate": wtr,
+                        "win_tp_ci_low": wlo,
+                        "win_tp_ci_high": whi,
+                        "loss_tp_rate": ltr,
+                        "loss_tp_ci_low": llo,
+                        "loss_tp_ci_high": lhi,
+                        "ev_per_unit_stake": ev,
+                        "ev_no_tp_reference": ev_no_tp,
+                        "is_argmax": False,
+                    }
+                )
+
+            if band_rows:
+                best = max(range(len(band_rows)), key=lambda i: band_rows[i]["ev_per_unit_stake"])
+                band_rows[best]["is_argmax"] = True
+                rows.extend(band_rows)
+
+        result = pd.DataFrame(rows, columns=cols)
+        ordering = GROUP_ORDERINGS.get(band_col)
+        if ordering and not result.empty:
+            present = [label for label in ordering if label in set(result["band"])]
+            result["band"] = pd.Categorical(result["band"], categories=present, ordered=True)
+            result = result.sort_values(["band", "target_price"]).reset_index(drop=True)
             result["band"] = result["band"].astype(str)
         return result
 

@@ -789,6 +789,71 @@ def test_ev_grid_no_stop_reference_row_ignores_slippage():
     assert zero_stop["loss_stopout_rate"] == pytest.approx(0.0)
 
 
+def _tp_grid_dataset(bands, wons, entries, maxs):
+    return pd.DataFrame(
+        {
+            "tipoff_interpretable_band": bands,
+            "tipoff_favorite_won": wons,
+            "tipoff_favorite_avg_last_n_pretip_price": entries,
+            "tipoff_favorite_in_game_max_price": maxs,
+        }
+    )
+
+
+def test_tp_grid_shape_and_no_tp_reference():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _tp_grid_dataset(
+        bands=["Lower Strong"] * 4,
+        wons=[True, True, False, False],
+        entries=[0.50, 0.50, 0.50, 0.50],
+        maxs=[0.90, 0.95, 0.70, 0.60],
+    )
+    grid = service.build_band_take_profit_ev_grid(dataset, ChartSettings())
+    assert list(grid.columns) == list(service._TP_GRID_COLUMNS)
+    # Every target is above entry, except the 1.0 hold-to-settlement reference.
+    E = grid["entry_price_used"].iloc[0]
+    assert ((grid["target_price"] > E) | (grid["target_price"] >= 1.0)).all()
+    expected_no_tp = 0.5 * (1.0 - 0.50) + 0.5 * (-0.50)  # = 0.0
+    assert grid["ev_no_tp_reference"].iloc[0] == pytest.approx(expected_no_tp)
+    ref_row = grid[grid["target_price"] >= 1.0].iloc[0]
+    assert ref_row["ev_per_unit_stake"] == pytest.approx(expected_no_tp)
+
+
+def test_tp_grid_salvages_losers_that_spike():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    # All losers, each spiking to 0.80 before collapsing; entry 0.50.
+    dataset = _tp_grid_dataset(
+        bands=["Lower Strong"] * 3,
+        wons=[False, False, False],
+        entries=[0.50, 0.50, 0.50],
+        maxs=[0.80, 0.80, 0.80],
+    )
+    grid = service.build_band_take_profit_ev_grid(dataset, ChartSettings())
+    argmax = grid[grid["is_argmax"]].iloc[0]
+    # Best target = the highest price the losers all reach (0.80) -> sell there.
+    assert argmax["target_price"] == pytest.approx(0.80)
+    assert argmax["ev_per_unit_stake"] == pytest.approx(0.30)  # 0.80 - 0.50
+    assert argmax["ev_per_unit_stake"] > grid["ev_no_tp_reference"].iloc[0]
+
+
+def test_tp_grid_does_not_help_all_winner_band():
+    service = NBAOpenTipoffAnalysisService("/tmp", ChartSettings())
+    dataset = _tp_grid_dataset(
+        bands=["Upper Strong"] * 3,
+        wons=[True, True, True],
+        entries=[0.80, 0.80, 0.80],
+        maxs=[0.95, 0.95, 0.95],
+    )
+    grid = service.build_band_take_profit_ev_grid(dataset, ChartSettings())
+    argmax = grid[grid["is_argmax"]].iloc[0]
+    # Capping a sure winner can't beat holding to settlement (1 - E = 0.20).
+    assert argmax["ev_per_unit_stake"] == pytest.approx(0.20)
+    assert argmax["target_price"] > 0.95  # above where any winner reaches
+    # A target the winners do reach yields strictly less than holding.
+    reached = grid[grid["target_price"].round(4) == 0.90].iloc[0]
+    assert reached["ev_per_unit_stake"] < 0.20
+
+
 def test_resolve_score_tipoff_time_picks_earliest_score_event():
     from nba_analysis import _resolve_score_tipoff_time
 
