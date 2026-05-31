@@ -149,6 +149,7 @@ def test_main_writes_outcome_exports(tmp_path, monkeypatch):
             str(Path(__file__).resolve().parent.parent / "chart_settings.json"),
             "--output-dir",
             str(output_dir),
+            "--path-analysis",
         ],
     )
 

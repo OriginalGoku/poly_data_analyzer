@@ -30,6 +30,12 @@ def parse_args():
         help="Grouping slice for summary tables and charts",
     )
     parser.add_argument("--output-dir", default="analysis_outputs", help="Root directory for exported reports")
+    parser.add_argument(
+        "--path-analysis",
+        action="store_true",
+        help="Run the heavy full-resolution passes (TP×SL bracket + live win-prob model). "
+        "Each re-reads every game's trades; skip for fast scalar-only runs.",
+    )
     return parser.parse_args()
 
 
@@ -241,6 +247,40 @@ def append_robustness_section(run_dir: Path, walk_forward, bootstrap):
         f.write("\n".join(lines) + "\n")
 
 
+def append_winprob_section(run_dir: Path, win_table, mispricing, n_train, n_test):
+    """Append the live win-prob mispricing test (Lever 3) to ``summary.md``."""
+    lines = ["", "## Live Win-Probability Mispricing Test (Lever 3)", ""]
+    lines.append(
+        f"Win-prob table fit on {n_train} train games (chronological); mispricing "
+        f"measured on {n_test} held-out test games."
+    )
+    lines.append("")
+    if mispricing.empty:
+        lines.append("_Insufficient data for the win-prob mispricing test._")
+    else:
+        lines.append(
+            "Buy favorite when model says it is underpriced by `edge = model_prob - market_price`; "
+            "hold to settlement. Positive EV in the high-edge buckets = tradeable mispricing."
+        )
+        lines.append("")
+        lines.append("| Edge bucket | N | Realized win rate | Mean market price | Mean model prob | EV |")
+        lines.append("|---|---|---|---|---|---|")
+        for _, r in mispricing.iterrows():
+            lines.append(
+                f"| {r['edge_bucket']} | {int(r['n'])} | {_format_pct(r['realized_win_rate'])} | "
+                f"{_format_number(r['mean_market_price'])} | {_format_number(r['mean_model_prob'])} | "
+                f"{_format_number(r['ev_per_unit_stake'])} |"
+            )
+    lines += [
+        "",
+        "- _Model = empirical P(win | game-time bucket, favorite-lead bucket) from train games. "
+        "Out-of-sample by construction (train/test split)._",
+        "",
+    ]
+    with open(run_dir / "summary.md", "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def append_bracket_ev_section(run_dir: Path, bracket):
     """Append the argmax-per-band TP+SL bracket table to ``summary.md``."""
     lines = ["", "## Bracket EV (per tip-off band, TP + SL, first-passage)", ""]
@@ -349,12 +389,23 @@ def main():
     tp_grid.to_csv(run_dir / "tipoff_band_take_profit_ev.csv", index=False)
     append_take_profit_ev_section(run_dir, tp_grid)
 
-    from nba_tipoff_bracket import build_band_bracket_ev_grid
+    if args.path_analysis:
+        from nba_tipoff_bracket import build_band_bracket_ev_grid
 
-    logger.info("Building TP x SL bracket grid (full-resolution first-passage)")
-    bracket = build_band_bracket_ev_grid(args.data_dir, settings, dataset)
-    bracket.to_csv(run_dir / "tipoff_band_bracket_ev.csv", index=False)
-    append_bracket_ev_section(run_dir, bracket)
+        logger.info("Building TP x SL bracket grid (full-resolution first-passage)")
+        bracket = build_band_bracket_ev_grid(args.data_dir, settings, dataset)
+        bracket.to_csv(run_dir / "tipoff_band_bracket_ev.csv", index=False)
+        append_bracket_ev_section(run_dir, bracket)
+
+        from nba_tipoff_winprob import build_winprob_analysis
+
+        logger.info("Building live win-probability model + mispricing test (Lever 3)")
+        win_table, mispricing, n_tr, n_te = build_winprob_analysis(args.data_dir, settings, dataset)
+        win_table.to_csv(run_dir / "winprob_table.csv", index=False)
+        mispricing.to_csv(run_dir / "winprob_mispricing_test.csv", index=False)
+        append_winprob_section(run_dir, win_table, mispricing, n_tr, n_te)
+    else:
+        logger.info("Skipping path-analysis passes (bracket + win-prob); pass --path-analysis to enable")
 
     transition = service.build_transition_matrix(dataset, "open_interpretable_band", "tipoff_interpretable_band")
     transition.to_csv(run_dir / "interpretable_transition_matrix.csv")
