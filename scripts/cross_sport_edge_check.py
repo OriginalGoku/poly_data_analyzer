@@ -28,6 +28,7 @@ def collect_sport_paths(sport: str, settings, data_dir: str = "data"):
     for base, get_game in stream_game_analytics(
         data_dir=data_dir,
         pregame_min_cum_vol=float(getattr(settings, "pregame_min_cum_vol", 0)),
+        base_records_cache_dir="cache/_base_records",
     ):
         if base.get("sport") != sport:
             continue
